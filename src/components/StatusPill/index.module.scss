@@ -1,0 +1,39 @@
+@use '@/styles/variables.scss' as *;
+
+.pill {
+  height: 42rpx;
+  padding: 0 16rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid $color-border;
+  font-size: 20rpx;
+  font-weight: $font-weight-bold;
+  letter-spacing: 1rpx;
+  white-space: nowrap;
+  color: $color-text-tertiary;
+  background: rgba(255, 255, 255, 0.04);
+  clip-path: polygon(10rpx 0, 100% 0, 100% calc(100% - 10rpx), calc(100% - 10rpx) 100%, 0 100%, 0 10rpx);
+}
+
+.recruiting {
+  color: $color-primary;
+  border-color: rgba(255, 70, 85, 0.6);
+  background: rgba(255, 70, 85, 0.12);
+}
+
+.ready {
+  color: $color-success;
+  border-color: rgba(18, 226, 220, 0.42);
+  background: rgba(18, 226, 220, 0.08);
+}
+
+.departed {
+  color: $color-text-tertiary;
+}
+
+.cancelled {
+  color: $color-error;
+  border-color: rgba(255, 70, 85, 0.64);
+  background: rgba(255, 70, 85, 0.12);
+}

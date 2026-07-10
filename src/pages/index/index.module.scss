@@ -1,0 +1,182 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  padding: 32rpx $page-padding 48rpx;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(255, 70, 85, 0.18), transparent 34%),
+    linear-gradient(180deg, $color-bg-page 0%, #0b121a 100%);
+}
+
+.hero {
+  position: relative;
+  width: 100%;
+  min-height: 360rpx;
+  padding: 40rpx 32rpx 32rpx;
+  overflow: hidden;
+  border: 1rpx solid $color-border;
+  background: linear-gradient(145deg, #172331, $color-bg-page);
+  box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, 0.34);
+  clip-path: polygon(32rpx 0, 100% 0, 100% calc(100% - 32rpx), calc(100% - 32rpx) 100%, 0 100%, 0 32rpx);
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: -76rpx;
+    top: 36rpx;
+    width: 280rpx;
+    height: 280rpx;
+    border: 36rpx solid rgba(255, 70, 85, 0.12);
+    transform: rotate(45deg);
+  }
+}
+
+.heroGrid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image:
+    linear-gradient(rgba(236, 232, 225, 0.22) 1rpx, transparent 1rpx),
+    linear-gradient(90deg, rgba(236, 232, 225, 0.22) 1rpx, transparent 1rpx);
+  background-size: 40rpx 40rpx;
+}
+
+.eyebrow,
+.title,
+.subtitle,
+.statsRow {
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow {
+  display: block;
+  color: $color-primary;
+  font-size: 20rpx;
+  font-weight: $font-weight-bold;
+  letter-spacing: 4rpx;
+}
+
+.title {
+  display: block;
+  margin-top: 20rpx;
+  color: $color-text-primary;
+  font-size: 54rpx;
+  font-weight: 800;
+  line-height: 1.08;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 8rpx;
+  color: $color-text-tertiary;
+  font-size: 26rpx;
+  font-weight: $font-weight-bold;
+  letter-spacing: 5rpx;
+}
+
+.statsRow {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 40rpx;
+}
+
+.statItem {
+  flex: 1;
+  padding: 20rpx 16rpx;
+  background: #172331;
+  border: 1rpx solid $color-border;
+}
+
+.statValue,
+.statLabel {
+  display: block;
+  text-align: center;
+}
+
+.statValue {
+  color: $color-text-primary;
+  font-size: 34rpx;
+  font-weight: $font-weight-bold;
+  line-height: 1.15;
+}
+
+.statLabel {
+  margin-top: 6rpx;
+  color: $color-text-tertiary;
+  font-size: 22rpx;
+}
+
+.commandPanel {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.primaryAction,
+.secondaryAction {
+  @include button-reset;
+  height: 88rpx;
+  flex: 1;
+  font-size: 28rpx;
+  font-weight: $font-weight-bold;
+  border-radius: 0;
+  transition: all $transition-base;
+  clip-path: polygon(18rpx 0, 100% 0, 100% calc(100% - 18rpx), calc(100% - 18rpx) 100%, 0 100%, 0 18rpx);
+
+  &:active {
+    opacity: 0.88;
+    transform: scale(0.98);
+  }
+}
+
+.primaryAction {
+  color: $color-text-primary;
+  background: $color-primary;
+}
+
+.secondaryAction {
+  color: $color-text-secondary;
+  border: 1rpx solid $color-border;
+  background: $color-bg-card;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 42rpx 0 22rpx;
+}
+
+.sectionTitle,
+.sectionDesc {
+  display: block;
+}
+
+.sectionTitle {
+  color: $color-text-primary;
+  font-size: 34rpx;
+  font-weight: $font-weight-bold;
+}
+
+.sectionDesc {
+  margin-top: 6rpx;
+  color: $color-text-tertiary;
+  font-size: 22rpx;
+}
+
+.liveBadge {
+  height: 40rpx;
+  padding: 0 16rpx;
+  display: flex;
+  align-items: center;
+  color: $color-success;
+  font-size: 20rpx;
+  font-weight: $font-weight-bold;
+  border: 1rpx solid rgba(18, 226, 220, 0.42);
+  background: rgba(18, 226, 220, 0.08);
+}
+
+.list {
+  width: 100%;
+}

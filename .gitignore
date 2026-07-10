@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.pai/
+.auth/
+.DS_Store
+*.local

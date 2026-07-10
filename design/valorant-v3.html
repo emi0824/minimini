@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>港瓦夕阳红 Valorant V3</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; background:#0f1923; color:#ece8e1; padding:32px 18px; }
+    .board { max-width:1680px; margin:0 auto; }
+    .boardTitle { margin:0 0 24px; }
+    .boardTitle b { display:block; font-size:30px; font-weight:950; }
+    .boardTitle span { display:block; margin-top:6px; color:#7f8790; font-size:13px; letter-spacing:2px; }
+    .canvas { display:grid; grid-template-columns:repeat(4,minmax(300px,390px)); gap:24px; align-items:start; }
+    .screenName { margin:0 0 10px; color:#ff4655; font-size:14px; font-weight:950; letter-spacing:2px; }
+    .phone { width:100%; height:760px; background:#0f1923; border:1px solid #2b3a47; box-shadow:0 28px 70px rgba(0,0,0,.45); overflow:hidden; display:flex; flex-direction:column; }
+    .nav { height:48px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:#0f1923; border-bottom:1px solid rgba(236,232,225,.1); font-size:15px; font-weight:850; }
+    .page { flex:1; overflow:auto; padding:18px 16px 28px; background:radial-gradient(circle at 85% 0,rgba(255,70,85,.18),transparent 30%),linear-gradient(180deg,#0f1923,#0b121a); }
+    .tabbar { height:56px; flex:0 0 auto; display:grid; grid-template-columns:1fr 1fr; background:#0f1923; border-top:1px solid rgba(236,232,225,.12); }
+    .tabbar span { display:flex; align-items:center; justify-content:center; color:#7f8790; font-size:13px; font-weight:900; letter-spacing:1px; position:relative; }
+    .tabbar .active { color:#ff4655; }
+    .tabbar .active:before { content:""; position:absolute; top:0; width:36px; height:3px; background:#ff4655; }
+    .hero,.card,.panel,.profile { background:#111823; border:1px solid #2b3a47; clip-path:polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%,0 18px); }
+    .hero { position:relative; min-height:190px; padding:24px 18px 18px; overflow:hidden; background:linear-gradient(145deg,#172331,#0f1923); }
+    .hero:before { content:""; position:absolute; inset:0; opacity:.12; background-image:linear-gradient(rgba(236,232,225,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(236,232,225,.22) 1px,transparent 1px); background-size:24px 24px; }
+    .hero:after { content:""; position:absolute; right:-38px; top:18px; width:160px; height:160px; border:22px solid rgba(255,70,85,.12); transform:rotate(45deg); }
+    .hero>* { position:relative; z-index:1; }
+    .eyebrow,.code,.sectionCode { color:#ff4655; font-size:11px; font-weight:950; letter-spacing:2px; text-transform:uppercase; }
+    .hero h1 { margin:12px 0 0; font-size:32px; line-height:1.05; font-weight:950; color:#ece8e1; }
+    .subtitle { margin-top:5px; color:#7f8790; font-size:14px; font-weight:900; letter-spacing:3px; }
+    .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:22px; }
+    .stat { padding:10px 8px; text-align:center; background:#172331; border:1px solid #2b3a47; }
+    .stat b { display:block; color:#ece8e1; font-size:19px; }
+    .stat span { display:block; margin-top:3px; color:#7f8790; font-size:12px; }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:16px 0 24px; }
+    .btn { height:46px; border:0; font-weight:950; clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px); }
+    .primary { color:#ece8e1; background:#ff4655; }
+    .ghost { color:#ece8e1; background:#111823; border:1px solid #2b3a47; }
+    .danger { color:#ece8e1; background:#bd3944; }
+    .section { display:flex; justify-content:space-between; align-items:end; margin-bottom:12px; }
+    .section h2 { margin:0; font-size:19px; color:#ece8e1; }
+    .section p { margin:3px 0 0; color:#7f8790; font-size:12px; }
+    .live,.pill { color:#12e2dc; border:1px solid rgba(18,226,220,.42); background:rgba(18,226,220,.08); padding:3px 8px; font-size:11px; font-weight:950; }
+    .pill.recruit { color:#ff4655; border-color:rgba(255,70,85,.6); background:rgba(255,70,85,.12); }
+    .card { position:relative; margin-bottom:14px; padding:18px; box-shadow:0 14px 34px rgba(0,0,0,.28); }
+    .card:before { content:""; position:absolute; left:0; top:18px; width:4px; height:60px; background:#ff4655; box-shadow:0 0 18px rgba(255,70,85,.38); }
+    .cardHead,.cardFoot,.detailHead,.capacity,.crew,.listRow { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .time { font-size:25px; font-weight:950; line-height:1; color:#ece8e1; }
+    .code { margin-top:4px; }
+    .card h3,.panel h3 { margin:16px 0 3px; font-size:21px; color:#ece8e1; }
+    .muted,.creator,.note,.passengers,.formLabel,.rowSub { color:#7f8790; font-size:13px; }
+    .bar { display:flex; align-items:center; gap:10px; margin:16px 0 6px; }
+    .track { flex:1; height:8px; background:#22313d; border:1px solid #2b3a47; }
+    .fill { height:100%; background:#ff4655; box-shadow:0 0 16px rgba(255,70,85,.4); }
+    .count { color:#ece8e1; font-weight:950; font-size:13px; }
+    .status { color:#12e2dc; font-size:13px; font-weight:950; }
+    .tags { display:flex; gap:7px; flex-wrap:wrap; margin-top:12px; }
+    .tag { color:#c7c2b8; border:1px solid #2b3a47; background:#172331; padding:4px 8px; font-size:12px; }
+    .cardFoot { align-items:end; margin-top:15px; }
+    .miniActions { display:flex; gap:7px; }
+    .mini { padding:8px 10px; color:#ece8e1; font-size:12px; font-weight:950; border:1px solid #2b3a47; background:#172331; clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
+    .primaryMini { color:#ece8e1; background:#ff4655; border:0; }
+    .panel { padding:18px; margin-bottom:16px; }
+    .pageTitle { margin:0 0 5px; font-size:30px; line-height:1.1; color:#ece8e1; }
+    .field { margin-top:16px; }
+    .formLabel { display:block; margin-bottom:8px; font-weight:850; color:#c7c2b8; }
+    .input,.textarea { width:100%; border:1px solid #2b3a47; background:#172331; color:#ece8e1; padding:0 13px; font-size:14px; }
+    .input { height:44px; display:flex; align-items:center; }
+    .textarea { min-height:86px; padding-top:12px; }
+    .counter { width:140px; height:44px; display:flex; border:1px solid #2b3a47; background:#172331; }
+    .counter div { width:44px; display:flex; align-items:center; justify-content:center; color:#ff4655; font-size:22px; font-weight:950; }
+    .counter b { flex:1; display:flex; align-items:center; justify-content:center; font-size:20px; }
+    .detailHero { padding:20px; }
+    .bigTime { margin-top:20px; font-size:46px; font-weight:950; color:#ece8e1; }
+    .capacity { margin-top:16px; padding-top:14px; border-top:1px solid rgba(236,232,225,.1); }
+    .crewList { padding:8px 14px; }
+    .crew { min-height:49px; border-bottom:1px solid rgba(236,232,225,.08); }
+    .crew:last-child { border-bottom:0; }
+    .no { width:32px; color:#ff4655; font-size:12px; font-weight:950; }
+    .crewMain { flex:1; }
+    .crewMain b { display:block; font-size:15px; color:#ece8e1; }
+    .crewMain span { display:block; margin-top:2px; color:#7f8790; font-size:12px; }
+    .leader { color:#ece8e1; background:#ff4655; padding:3px 7px; font-size:10px; font-weight:950; }
+    .profile { padding:22px 18px; margin-bottom:16px; }
+    .profile h2 { margin:10px 0 2px; font-size:30px; color:#ece8e1; }
+    .listRow { min-height:58px; border-top:1px solid rgba(236,232,225,.08); }
+    .listRow b { display:block; font-size:15px; color:#ece8e1; }
+    .listRow em { color:#ff4655; font-style:normal; font-weight:950; font-size:13px; }
+    @media(max-width:1320px){.canvas{grid-template-columns:repeat(2,minmax(300px,390px));justify-content:center}}
+    @media(max-width:760px){.canvas{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="board">
+    <div class="boardTitle"><b>港瓦夕阳红 · Valorant 风格 V3</b><span>完整稿：大厅 / 创建车队 / 车队详情 / 我的档案，含底部 TabBar</span></div>
+    <section class="canvas">
+      <div><p class="screenName">01 大厅 Tab</p><div class="phone"><div class="nav">作战大厅</div><div class="page"><section class="hero"><div class="eyebrow">GANGWA OPERATIONS</div><h1>港瓦夕阳红</h1><div class="subtitle">TACTICAL LOBBY</div><div class="stats"><div class="stat"><b>3</b><span>车队</span></div><div class="stat"><b>10</b><span>待命</span></div><div class="stat"><b>21:30</b><span>下一班</span></div></div></section><div class="actions"><button class="btn primary">创建车队</button><button class="btn ghost">复制战报</button></div><div class="section"><div><h2>今日集结</h2><p>按发车时间排序，满员即准备开战</p></div><div class="live">LIVE</div></div><article class="card"><div class="cardHead"><div><div class="time">21:30</div><div class="code">RANKED SQUAD</div></div><div class="pill recruit">RECRUITING</div></div><h3>排位复健车</h3><div class="creator">发起人 / 老张</div><div class="bar"><div class="track"><div class="fill" style="width:60%"></div></div><div class="count">3/5</div></div><div class="status">差 2 人集结</div><p class="note">缺辅助，语音开黑，别鸽。</p><div class="tags"><span class="tag">缺辅助</span><span class="tag">语音</span><span class="tag">稳一点</span></div><div class="cardFoot"><div class="passengers">乘员：老张 / 老王 / 阿强</div><div class="miniActions"><button class="mini">详情</button><button class="mini primaryMini">加入车队</button></div></div></article><article class="card"><div class="cardHead"><div><div class="time">22:40</div><div class="code">NIGHT OPS</div></div><div class="pill">READY</div></div><h3>夜猫娱乐车</h3><div class="creator">发起人 / 阿坤</div><div class="bar"><div class="track"><div class="fill" style="width:100%"></div></div><div class="count">5/5</div></div><div class="status">READY TO GO · 准备开战</div><p class="note">快乐局，输赢随缘，主打一个不红温。</p></article></div><div class="tabbar"><span class="active">大厅</span><span>我的</span></div></div></div>
+
+      <div><p class="screenName">02 创建车队 二级页</p><div class="phone"><div class="nav">创建车队</div><div class="page"><section class="panel"><div class="sectionCode">CREATE SQUAD</div><h2 class="pageTitle">创建车队</h2><div class="muted">填写发车时间和组队要求，群友即可加入。</div><div class="field"><label class="formLabel">发起人代号</label><div class="input">老王</div></div><div class="field"><label class="formLabel">发车时间</label><div class="input">23:20</div></div><div class="field"><label class="formLabel">车队名称</label><div class="input">五黑集结</div></div><div class="field"><label class="formLabel">快捷标签</label><div class="tags"><span class="tag" style="background:#ff4655;color:#ece8e1;border:0;font-weight:950">排位复健</span><span class="tag">娱乐乱斗</span><span class="tag">夜猫行动</span></div></div><div class="field"><label class="formLabel">队伍人数</label><div class="counter"><div>-</div><b>5</b><div>+</div></div></div><div class="field"><label class="formLabel">作战备注</label><div class="textarea">人齐就开，来两个能指挥的。</div></div></section><button class="btn primary" style="width:100%">确认创建车队</button></div></div></div>
+
+      <div><p class="screenName">03 车队详情 二级页</p><div class="phone"><div class="nav">车队详情</div><div class="page"><section class="panel detailHero"><div class="detailHead"><div><div class="sectionCode">RANKED SQUAD</div><h2 class="pageTitle">排位复健车</h2></div><div class="pill recruit">RECRUITING</div></div><div class="bigTime">21:30</div><div class="muted">发起人 / 老张</div><p class="note">缺辅助，语音开黑，别鸽。</p><div class="capacity"><b class="count">3/5</b><span class="status">差 2 人集结</span></div></section><div class="sectionCode" style="margin:18px 0 10px">CREW LIST</div><section class="panel crewList"><div class="crew"><span class="no">01</span><div class="crewMain"><b>老张</b><span>队长</span></div><span class="leader">LEADER</span></div><div class="crew"><span class="no">02</span><div class="crewMain"><b>老王</b><span>打野</span></div></div><div class="crew"><span class="no">03</span><div class="crewMain"><b>阿强</b><span>补位 · 21:40到</span></div></div><div class="crew"><span class="no">04</span><div class="crewMain"><b style="color:#535b63">-- 空位 --</b><span>WAITING</span></div></div><div class="crew"><span class="no">05</span><div class="crewMain"><b style="color:#535b63">-- 空位 --</b><span>WAITING</span></div></div></section><div style="display:grid;gap:10px;margin-top:16px"><button class="btn primary">加入车队</button><button class="btn ghost">复制本车战报</button><button class="btn danger">退出我的座位</button></div></div></div></div>
+
+      <div><p class="screenName">04 我的 Tab</p><div class="phone"><div class="nav">我的档案</div><div class="page"><section class="profile"><div class="sectionCode">OPERATOR PROFILE</div><h2>老王</h2><div class="muted">微信身份：已识别 · OpenID 已绑定</div><button class="mini primaryMini" style="margin-top:16px">修改游戏昵称</button></section><section class="panel"><div class="sectionCode">JOINED SQUADS</div><div class="listRow"><div><b>21:30 排位复健车</b><span class="rowSub">3/5 · 老张发起</span></div><em>查看</em></div></section><section class="panel"><div class="sectionCode">CREATED SQUADS</div><div class="listRow"><div><b>23:20 五黑集结</b><span class="rowSub">仅发起人可解散车队</span></div><em>管理</em></div></section><section class="panel"><div class="sectionCode">RULES</div><p class="note">下车、解散等敏感操作均基于微信 openid 判断，只有本人可操作自己的报名。</p></section></div><div class="tabbar"><span>大厅</span><span class="active">我的</span></div></div></div>
+    </section>
+  </main>
+</body>
+</html>

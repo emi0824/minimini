@@ -1,0 +1,13 @@
+{
+  "miniprogramRoot": "./",
+  "projectname": "gangwa-miniapp",
+  "description": "港瓦小程序",
+  "appid": "wx14d0d91db5bd4085",
+  "setting": {
+    "urlCheck": true,
+    "es6": false,
+    "postcss": false,
+    "minified": false
+  },
+  "compileType": "miniprogram"
+}

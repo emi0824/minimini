@@ -1,0 +1,182 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  padding: 32rpx $page-padding 56rpx;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 70, 85, 0.18), transparent 30%),
+    $color-bg-page;
+}
+
+.header {
+  padding: 20rpx 0 32rpx;
+}
+
+.kicker,
+.title,
+.desc {
+  display: block;
+}
+
+.kicker {
+  color: $color-primary;
+  font-size: 20rpx;
+  font-weight: $font-weight-bold;
+  letter-spacing: 4rpx;
+}
+
+.title {
+  margin-top: 16rpx;
+  color: $color-text-primary;
+  font-size: 48rpx;
+  font-weight: 800;
+}
+
+.desc {
+  margin-top: 10rpx;
+  color: $color-text-tertiary;
+  font-size: 24rpx;
+}
+
+.formCard {
+  padding: 32rpx;
+  border: 1rpx solid $color-border;
+  background: $color-bg-card;
+  clip-path: polygon(24rpx 0, 100% 0, 100% calc(100% - 24rpx), calc(100% - 24rpx) 100%, 0 100%, 0 24rpx);
+}
+
+.field {
+  margin-bottom: 30rpx;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.label {
+  display: block;
+  margin-bottom: 14rpx;
+  color: $color-text-secondary;
+  font-size: 24rpx;
+  font-weight: $font-weight-semibold;
+}
+
+.input,
+.textarea,
+.readonlyInput {
+  width: 100%;
+  color: $color-text-primary;
+  font-size: 28rpx;
+  border: 1rpx solid $color-border;
+  background: #172331;
+}
+
+.input,
+.readonlyInput {
+  height: 84rpx;
+  padding: 0 24rpx;
+}
+
+.readonlyInput {
+  display: flex;
+  align-items: center;
+  color: $color-text-tertiary;
+  background: rgba(23, 35, 49, 0.62);
+}
+
+.textarea {
+  min-height: 152rpx;
+  padding: 22rpx 24rpx;
+}
+
+.placeholder {
+  color: $color-text-disabled;
+}
+
+.tagList,
+.quickTimeList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+
+.quickTimeList {
+  margin-top: 16rpx;
+}
+
+.timePicker {
+  width: 100%;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 24rpx;
+  color: $color-text-primary;
+  font-size: 32rpx;
+  font-weight: $font-weight-bold;
+  border: 1rpx solid $color-border;
+  background: #172331;
+}
+
+.tag,
+.tagActive,
+.quickTime,
+.quickTimeActive {
+  padding: 12rpx 18rpx;
+  font-size: 22rpx;
+  border: 1rpx solid $color-border;
+  background: #172331;
+}
+
+.tag,
+.quickTime {
+  color: $color-text-tertiary;
+}
+
+.tagActive,
+.quickTimeActive {
+  color: $color-text-primary;
+  font-weight: $font-weight-bold;
+  border-color: transparent;
+  background: $color-primary;
+}
+
+.counter {
+  width: 260rpx;
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  border: 1rpx solid $color-border;
+  background: #172331;
+}
+
+.counterButton {
+  width: 80rpx;
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $color-primary;
+  font-size: 38rpx;
+  font-weight: $font-weight-bold;
+}
+
+.capacity {
+  flex: 1;
+  color: $color-text-primary;
+  font-size: 34rpx;
+  font-weight: $font-weight-bold;
+  text-align: center;
+}
+
+.submitButton {
+  @include button-reset;
+  width: 100%;
+  height: 92rpx;
+  margin-top: 32rpx;
+  color: $color-text-primary;
+  font-size: 30rpx;
+  font-weight: $font-weight-bold;
+  background: $color-primary;
+  border-radius: 0;
+  clip-path: polygon(20rpx 0, 100% 0, 100% calc(100% - 20rpx), calc(100% - 20rpx) 100%, 0 100%, 0 20rpx);
+}
