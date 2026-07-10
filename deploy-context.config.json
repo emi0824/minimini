@@ -22,7 +22,7 @@
       "projectCredentialSynced": true,
       "nextIfRecurring": "优先检查 /Users/m10003000193/.trae/trae-jwt-token 是否存在、.pai/pai-preview-server.lock 指向的 PID 是否健康、.pai/pai.log 是否有 createCloudSession code=0。"
     },
-    "nextPrimaryTask": "微信群准入绑定流程已明确：扫码打开无法获得 shareTicket，管理员需要前端提供 分享到准入微信群 按钮，分享到目标群后从群卡片重新进入，再点击绑定当前微信群调用 /api/admin/group/bind。下一步补前端分享入口和引导文案。"
+    "nextPrimaryTask": "成员权限管理已支持设为管理员/取消管理员：业务管理员可提升普通成员或取消其他业务管理员身份；管理员只需微信身份授权，不需要微信群验证。下一步用真机验证管理员晋升/取消和准入流程。"
   },
   "project": {
     "name": "gangwa-miniapp",
@@ -41,7 +41,7 @@
       "confirmed": true,
       "style": "Valorant 风格：深海军蓝/黑、象牙白文字、高饱和红主色、少量青色状态色",
       "previewUrl": "https://trae.mobile.volcapp.com/preview/?ws=ws://localhost:62048",
-      "lastPreviewRefresh": "2026-07-10：成员权限管理隐藏当前管理员并隐藏 openid，预览服务已刷新"
+      "lastPreviewRefresh": "2026-07-10：成员权限管理新增设为管理员/取消管理员，预览服务已刷新"
     },
     "importantFiles": {
       "apiConfig": "src/config/api.ts",
@@ -1396,6 +1396,10 @@
       "Plan A 五项产品优化均已完成：未准入/被禁用状态页、管理员禁用二次确认、首页车队状态标签、创建快捷时间、消息提醒说明和状态均已落地并复验通过",
       "补齐微信群准入绑定前端入口：我的页管理员区域新增分享到准入微信群按钮、绑定当前微信群按钮和三步引导；修复 useShareAppMessage 导入；预览服务 JWT 恢复后已刷新",
       "优化成员权限管理：前端 manageableUsers 过滤当前管理员自己；后端 GET /api/admin/users 不返回当前管理员；成员列表展示昵称和微信身份状态，不展示 openid；已部署大陆服务器并刷新预览",
+      "按固定微信群私有化目标收紧数据访问：GET /api/squads 和 GET /api/squads/:id 改为 requireActiveUser，未登录/未准入不能读取车队数据；首页增加准入守卫，未通过只显示验证/阻断卡，不拉取大厅列表；已部署并验证未登录读取返回 401",
+      "准入交互改为统一蒙层：大厅和我的页未授权/未通过群验证时只展示授权验证蒙层，隐藏大厅列表和我的页面内容；授权验证通过后蒙层消失并刷新车队列表；预览已刷新",
+      "成员权限管理新增设为管理员：后端支持 /api/admin/users/:openid/promote，将用户 role 写为 admin；isAdmin 同时识别环境变量 ADMIN_OPENIDS 和用户 role；前端成员列表对普通成员显示设为管理员操作；已部署大陆服务器并刷新预览",
+      "成员权限管理补充取消管理员：后端支持 /api/admin/users/:openid/demote，将业务管理员 role 改回 member；前端对其他管理员显示取消管理员操作；已部署大陆服务器并刷新预览",
       "生成本地 Word 产品功能说明文档：港瓦小程序产品功能说明.docx，覆盖产品概述、用户角色、核心功能、访问控制、消息提醒、上线状态、指标和风险预案",
       "确定访问控制最佳方案：微信群 openGId 准入验证 + 管理员 disabled 禁用/恢复 + 核心接口统一权限拦截；短期优先实现管理员禁用/恢复，长期接入微信群验证和 30 天复验"
     ],

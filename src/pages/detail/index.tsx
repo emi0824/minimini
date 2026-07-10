@@ -36,8 +36,8 @@ const DetailPage: React.FC = () => {
     );
   }
 
-  const isCreator = squad.creatorOpenid === user.openid;
-  const isJoined = squad.passengers.some((item) => item.openid === user.openid);
+  const isCreator = Boolean(squad.isCreator) || squad.creatorOpenid === user.openid;
+  const isJoined = Boolean(squad.isJoined) || squad.passengers.some((item) => item.openid === user.openid);
   const restSlots = Math.max(squad.capacity - squad.passengers.length, 0);
   const forceRefresh = () => setVersion((value) => value + 1);
 

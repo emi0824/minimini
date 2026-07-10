@@ -2,16 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useShareAppMessage } from '@tarojs/taro';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
-import { getCurrentUser, hasAuthSession } from '@/services/auth';
+import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { getSquadsApi, resetSquadsApi, updateNicknameApi } from '@/services/squadApi';
 import { requestAllSquadSubscribes, SUBSCRIBE_TEMPLATE_IDS } from '@/services/subscription';
 import {
   AccessState,
   bindWechatGroup,
+  demoteAdminUser,
   disableUser,
   enableUser,
   getAccessState,
   getAdminUsers,
+  promoteUserToAdmin,
   verifyWechatGroupAccess
 } from '@/services/accessControl';
 import { Squad, UserProfile } from '@/types/squad';
@@ -27,21 +29,26 @@ const MinePage: React.FC = () => {
   const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
   const [disableReason, setDisableReason] = useState('不符合车队使用规则');
 
-  useEffect(() => {
-    getSquadsApi()
-      .then(setSquads)
-      .catch((error) => {
-        console.error('[Mine] load squads failed', error);
-        Taro.showToast({ title: '车队加载失败', icon: 'none' });
-      });
-  }, [version]);
-
   const refreshAccessState = async () => {
     try {
       const state = await getAccessState();
       setAccessState(state);
       setCurrentUser(state.user);
       setIsAuthorized(true);
+      if (state.needsGroupVerify) {
+        try {
+          const result = await verifyWechatGroupAccess();
+          setCurrentUser(result.user);
+          setAccessState({ ...state, user: result.user, isGroupVerified: true, needsGroupVerify: false, message: '权限正常' });
+          setSquads(await getSquadsApi());
+        } catch (error) {
+          setSquads([]);
+        }
+      } else if (!state.isDisabled) {
+        setSquads(await getSquadsApi());
+      } else {
+        setSquads([]);
+      }
       if (state.isAdmin) setAdminUsers(await getAdminUsers());
     } catch (error) {
       console.info('[Mine] access state skipped', error);
@@ -52,13 +59,26 @@ const MinePage: React.FC = () => {
     if (isAuthorized) refreshAccessState();
   }, [isAuthorized, version]);
 
-  const joined = squads.filter((item) => item.passengers.some((passenger) => passenger.openid === currentUser.openid));
-  const created = squads.filter((item) => item.creatorOpenid === currentUser.openid);
+  const joined = squads.filter((item) => Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid));
+  const created = squads.filter((item) => Boolean(item.isCreator) || item.creatorOpenid === currentUser.openid);
   const accessBlocked = accessState?.isDisabled || accessState?.needsGroupVerify;
-  const accessTitle = accessState?.isDisabled ? '使用权限已移除' : '需要完成微信群验证';
   const accessDescription = accessState?.isDisabled
     ? '你的使用权限已被管理员移除。如需恢复，请联系群管理员确认。'
     : '本小程序仅限指定车队群成员使用。请从群内分享的小程序卡片进入，完成成员验证后即可使用。';
+  const canViewMine = isAuthorized && accessState && !accessBlocked;
+  const accessOverlayTitle = !isAuthorized
+    ? '需要授权微信身份'
+    : !accessState
+      ? '正在验证访问权限'
+      : accessState.isDisabled
+        ? '使用权限已移除'
+        : '需要完成微信群验证';
+  const accessOverlayDesc = !isAuthorized
+    ? '请先授权微信身份。管理员授权后可直接进入；普通成员需从准入微信群卡片进入完成验证。'
+    : !accessState
+      ? '正在检查你的登录和准入状态...'
+      : accessDescription;
+  const accessOverlayButtonText = !isAuthorized ? '授权并继续' : '授权并验证';
   const subscribedIds = currentUser.subscribedTemplateIds || [];
   const subscribeTemplateIds = Object.values(SUBSCRIBE_TEMPLATE_IDS);
   const enabledMessageCount = subscribeTemplateIds.filter((id) => subscribedIds.includes(id)).length;
@@ -71,9 +91,20 @@ const MinePage: React.FC = () => {
       : '消息提醒：未开启';
   const messageButtonText = messageEnabled ? '重新授权消息提醒' : messagePartiallyEnabled ? '继续授权消息提醒' : '授权消息提醒';
   const manageableUsers = adminUsers.filter((user) => user.openid !== currentUser.openid);
+  const canManageAdminRole = accessState?.isRootAdmin === true;
 
   const openDetail = (id: number) => {
     Taro.navigateTo({ url: `/pages/detail/index?id=${id}` });
+  };
+
+  const handleAuthorizeAndCheck = async () => {
+    try {
+      await ensureAuthenticatedUser(nickname.trim() || currentUser.nickname);
+      setIsAuthorized(true);
+      await refreshAccessState();
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '授权失败', icon: 'none' });
+    }
   };
 
   const handleSaveNickname = async () => {
@@ -95,17 +126,6 @@ const MinePage: React.FC = () => {
     }
   };
 
-  const handleVerifyGroup = async () => {
-    try {
-      const result = await verifyWechatGroupAccess();
-      setCurrentUser(result.user);
-      await refreshAccessState();
-      Taro.showToast({ title: '微信群验证通过', icon: 'success' });
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '验证失败', icon: 'none' });
-    }
-  };
-
   const handleBindGroup = async () => {
     try {
       await bindWechatGroup();
@@ -114,6 +134,42 @@ const MinePage: React.FC = () => {
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '绑定失败', icon: 'none' });
     }
+  };
+
+  const handlePromoteUser = (user: UserProfile) => {
+    Taro.showModal({
+      title: '设置管理员',
+      content: `确认将 ${user.nickname} 设置为管理员？设置后该成员可管理成员权限和绑定准入微信群。`,
+      confirmText: '设为管理员',
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          await promoteUserToAdmin(user.openid);
+          setAdminUsers(await getAdminUsers());
+          Taro.showToast({ title: '已设为管理员', icon: 'success' });
+        } catch (error) {
+          Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
+        }
+      }
+    });
+  };
+
+  const handleDemoteUser = (user: UserProfile) => {
+    Taro.showModal({
+      title: '取消管理员',
+      content: `确认取消 ${user.nickname} 的管理员身份？取消后该成员将按普通成员准入规则使用。`,
+      confirmText: '取消管理员',
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          await demoteAdminUser(user.openid);
+          setAdminUsers(await getAdminUsers());
+          Taro.showToast({ title: '已取消管理员', icon: 'success' });
+        } catch (error) {
+          Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
+        }
+      }
+    });
   };
 
   const handleToggleUser = (user: UserProfile) => {
@@ -171,6 +227,20 @@ const MinePage: React.FC = () => {
     });
   };
 
+  if (!canViewMine) {
+    return (
+      <View className={styles.page}>
+        <View className={styles.accessOverlay}>
+          <View className={styles.accessModal}>
+            <Text className={styles.accessTitle}>{accessOverlayTitle}</Text>
+            <Text className={styles.accessDesc}>{accessOverlayDesc}</Text>
+            {(!isAuthorized || accessState?.needsGroupVerify) && <Button className={styles.editButton} onClick={handleAuthorizeAndCheck}>{accessOverlayButtonText}</Button>}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className={styles.page}>
       <View className={styles.profileCard}>
@@ -185,7 +255,9 @@ const MinePage: React.FC = () => {
         <Text className={styles.sectionTitle}>准入状态</Text>
         {accessBlocked ? (
           <View>
-            <Text className={styles.accessTitle}>{accessTitle}</Text>
+            {accessState?.isDisabled
+              ? <Text className={styles.accessTitle}>使用权限已移除</Text>
+              : <Text className={styles.accessTitle}>需要完成微信群验证</Text>}
             <Text className={styles.accessDesc}>{accessDescription}</Text>
             {accessState?.isDisabled && <Text className={styles.accessReason}>禁用原因：{accessState.user.disabledReason || '管理员禁用'}</Text>}
           </View>
@@ -193,7 +265,6 @@ const MinePage: React.FC = () => {
           <Text className={styles.rowMeta}>{accessState?.message || '授权后可查看微信群准入状态'}</Text>
         )}
         {accessState?.isAdmin && <Text className={styles.rowMeta}>管理员权限：已开启</Text>}
-        {!accessState?.isDisabled && <Button className={styles.editButton} onClick={handleVerifyGroup}>验证微信群身份</Button>}
       </View>
 
       {accessState?.isAdmin && (
@@ -218,10 +289,15 @@ const MinePage: React.FC = () => {
             <View className={styles.row} key={user.openid}>
               <View>
                 <Text className={styles.rowTitle}>{user.nickname}</Text>
-                <Text className={styles.rowMeta}>微信身份：已授权</Text>
+                <Text className={styles.rowMeta}>{user.role === 'admin' ? '管理员' : '普通成员'} · 微信身份：已授权</Text>
                 <Text className={styles.rowMeta}>{user.disabled ? `已禁用 · ${user.disabledReason || '无原因'}` : '可使用'}</Text>
               </View>
-              <Text className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Text>
+              <View className={styles.rowActions}>
+                {canManageAdminRole && (user.role === 'admin'
+                  ? <Text className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</Text>
+                  : <Text className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</Text>)}
+                <Text className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Text>
+              </View>
             </View>
           ))}
           {manageableUsers.length === 0 && <Text className={styles.rowMeta}>暂无可管理成员</Text>}

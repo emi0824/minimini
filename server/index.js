@@ -39,9 +39,14 @@ const loadEnvFile = () => {
 loadEnvFile();
 
 if (PROXY_TARGET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('生产环境禁止启用 PROXY_TARGET 代理模式');
+  }
+
   const proxyServer = http.createServer((req, res) => {
     const targetUrl = new URL(req.url, PROXY_TARGET);
-    const proxyReq = http.request(targetUrl, { method: req.method, headers: req.headers }, (proxyRes) => {
+    const { authorization, cookie, ...proxyHeaders } = req.headers;
+    const proxyReq = http.request(targetUrl, { method: req.method, headers: proxyHeaders }, (proxyRes) => {
       res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
       proxyRes.pipe(res);
     });
@@ -193,14 +198,6 @@ const getAuthOpenid = (req) => {
   return verifyToken(match?.[1]);
 };
 
-const getOptionalAuthOpenid = (req) => {
-  try {
-    return getAuthOpenid(req);
-  } catch (error) {
-    return '';
-  }
-};
-
 const wxRequest = (url, payload) => new Promise((resolve, reject) => {
   const target = new URL(url);
   const body = payload ? JSON.stringify(payload) : undefined;
@@ -322,7 +319,8 @@ const publicUser = (user) => {
   const { sessionKey, ...rest } = user;
   return {
     ...rest,
-    role: adminOpenids.has(user.openid) ? 'admin' : (user.role || 'member')
+    role: isAdmin(user) ? 'admin' : (user.role || 'member'),
+    isRootAdmin: adminOpenids.has(user.openid)
   };
 };
 
@@ -374,11 +372,14 @@ const getOrCreateUser = (data, userOpenid, userNickname = '未命名成员') => 
 
 const findSquad = (data, squadId) => data.squads.find((item) => item.id === squadId);
 const getAllowedGroupOpenGid = (data) => process.env.ALLOWED_GROUP_OPEN_GID || data.settings?.allowedGroupOpenGid || '';
-const isAdmin = (openid) => adminOpenids.has(openid);
+const isAdmin = (userOrOpenid) => {
+  if (typeof userOrOpenid === 'string') return adminOpenids.has(userOrOpenid);
+  return adminOpenids.has(userOrOpenid.openid) || userOrOpenid.role === 'admin';
+};
 
 const isGroupVerified = (data, user) => {
   const allowedGroupOpenGid = getAllowedGroupOpenGid(data);
-  if (isAdmin(user.openid)) return true;
+  if (isAdmin(user)) return true;
   if (!allowedGroupOpenGid) return false;
   if (user.groupOpenGid !== allowedGroupOpenGid || user.groupVerified !== true) return false;
   return Date.now() - Number(user.groupVerifiedAt || 0) <= GROUP_VERIFY_TTL;
@@ -387,14 +388,20 @@ const isGroupVerified = (data, user) => {
 const requireActiveUser = (req, data, { requireGroup = true } = {}) => {
   const user = getOrCreateUser(data, getAuthOpenid(req));
   if (user.disabled) throw Object.assign(new Error(user.disabledReason || '账号已被管理员禁用'), { status: 403 });
-  if (requireGroup && !getAllowedGroupOpenGid(data) && !isAdmin(user.openid)) throw Object.assign(new Error('管理员尚未绑定准入微信群'), { status: 403 });
+  if (requireGroup && !getAllowedGroupOpenGid(data) && !isAdmin(user)) throw Object.assign(new Error('管理员尚未绑定准入微信群'), { status: 403 });
   if (requireGroup && !isGroupVerified(data, user)) throw Object.assign(new Error('请从指定微信群进入完成准入验证'), { status: 403 });
   return user;
 };
 
 const requireAdmin = (req, data) => {
   const user = requireActiveUser(req, data, { requireGroup: false });
-  if (!isAdmin(user.openid)) throw Object.assign(new Error('需要管理员权限'), { status: 403 });
+  if (!isAdmin(user)) throw Object.assign(new Error('需要管理员权限'), { status: 403 });
+  return user;
+};
+
+const requireRootAdmin = (req, data) => {
+  const user = requireAdmin(req, data);
+  if (!adminOpenids.has(user.openid)) throw Object.assign(new Error('需要根管理员权限'), { status: 403 });
   return user;
 };
 
@@ -564,26 +571,37 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/(disable|enable)$/);
+    const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/(disable|enable|promote|demote)$/);
     if (adminUserMatch && req.method === 'POST') {
       checkRateLimit(req, 'admin-write', 60, 60 * 1000);
       const body = await parseBody(req);
       const targetOpenid = decodeURIComponent(adminUserMatch[1]);
       const action = adminUserMatch[2];
       const user = await withWriteLock((data) => {
-        const admin = requireAdmin(req, data);
+        const admin = action === 'promote' || action === 'demote' ? requireRootAdmin(req, data) : requireAdmin(req, data);
         const target = getOrCreateUser(data, targetOpenid);
+        if (target.openid === admin.openid) throw Object.assign(new Error('不能操作当前管理员自己'), { status: 400 });
+        if (action === 'demote' && adminOpenids.has(target.openid)) throw Object.assign(new Error('不能取消根管理员权限'), { status: 400 });
         if (action === 'disable') {
-          if (target.openid === admin.openid) throw Object.assign(new Error('管理员不能禁用自己'), { status: 400 });
           target.disabled = true;
           target.disabledAt = Date.now();
           target.disabledBy = admin.openid;
           target.disabledReason = text(body.reason || '管理员禁用', '禁用原因', 80, { required: false }) || '管理员禁用';
-        } else {
+        } else if (action === 'enable') {
           target.disabled = false;
           target.enabledAt = Date.now();
           target.enabledBy = admin.openid;
           target.disabledReason = '';
+        } else if (action === 'promote') {
+          target.role = 'admin';
+          target.promotedAt = Date.now();
+          target.promotedBy = admin.openid;
+          target.disabled = false;
+          target.disabledReason = '';
+        } else {
+          target.role = 'member';
+          target.demotedAt = Date.now();
+          target.demotedBy = admin.openid;
         }
         return publicUser(target);
       });
@@ -613,8 +631,8 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/squads' && req.method === 'GET') {
       const data = readData();
-      const viewerOpenid = getOptionalAuthOpenid(req);
-      ok(res, data.squads.map((squad) => publicSquad(squad, viewerOpenid)));
+      const user = requireActiveUser(req, data);
+      ok(res, data.squads.map((squad) => publicSquad(squad, user.openid)));
       return;
     }
 
@@ -652,9 +670,10 @@ const server = http.createServer(async (req, res) => {
     const squadMatch = pathname.match(/^\/api\/squads\/(\d+)$/);
     if (squadMatch && req.method === 'GET') {
       const data = readData();
+      const user = requireActiveUser(req, data);
       const squad = findSquad(data, Number(squadMatch[1]));
       if (!squad) return fail(res, 404, '车队不存在');
-      ok(res, publicSquad(squad, getOptionalAuthOpenid(req)));
+      ok(res, publicSquad(squad, user.openid));
       return;
     }
 

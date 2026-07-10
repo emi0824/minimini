@@ -6,6 +6,7 @@ import { UserProfile } from '@/types/squad';
 export interface AccessState {
   user: UserProfile;
   isAdmin: boolean;
+  isRootAdmin: boolean;
   isDisabled: boolean;
   isGroupVerified: boolean;
   needsGroupVerify: boolean;
@@ -22,6 +23,7 @@ export const getMe = async () => {
 export const getAccessState = async (): Promise<AccessState> => {
   const user = await getMe();
   const isAdmin = user.role === 'admin';
+  const isRootAdmin = user.isRootAdmin === true;
   const isDisabled = user.disabled === true;
   const isGroupVerified = isAdmin || user.groupVerified === true;
   const needsGroupVerify = !isDisabled && !isGroupVerified;
@@ -31,7 +33,7 @@ export const getAccessState = async (): Promise<AccessState> => {
       ? '请从指定微信群进入完成准入验证'
       : '权限正常';
 
-  return { user, isAdmin, isDisabled, isGroupVerified, needsGroupVerify, message };
+  return { user, isAdmin, isRootAdmin, isDisabled, isGroupVerified, needsGroupVerify, message };
 };
 
 export const ensureActiveAccess = async () => {
@@ -104,6 +106,14 @@ export const disableUser = (openid: string, reason: string) => (
 
 export const enableUser = (openid: string) => (
   request<UserProfile>(`/api/admin/users/${encodeURIComponent(openid)}/enable`, 'POST')
+);
+
+export const promoteUserToAdmin = (openid: string) => (
+  request<UserProfile>(`/api/admin/users/${encodeURIComponent(openid)}/promote`, 'POST')
+);
+
+export const demoteAdminUser = (openid: string) => (
+  request<UserProfile>(`/api/admin/users/${encodeURIComponent(openid)}/demote`, 'POST')
 );
 
 export const getCachedAccessUser = () => getCurrentUser();

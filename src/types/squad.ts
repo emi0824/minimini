@@ -32,6 +32,7 @@ export interface UserProfile {
   createdSquadIds: number[];
   subscribedTemplateIds?: string[];
   role?: 'admin' | 'member';
+  isRootAdmin?: boolean;
   disabled?: boolean;
   disabledAt?: number;
   disabledBy?: string;
