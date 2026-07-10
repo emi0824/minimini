@@ -22,7 +22,7 @@
       "projectCredentialSynced": true,
       "nextIfRecurring": "优先检查 /Users/m10003000193/.trae/trae-jwt-token 是否存在、.pai/pai-preview-server.lock 指向的 PID 是否健康、.pai/pai.log 是否有 createCloudSession code=0。"
     },
-    "nextPrimaryTask": "微信后台 request 合法域名 https://api.viper333.cn 已配置；下一步做真机/体验版全链路回归。"
+    "nextPrimaryTask": "微信群准入绑定流程已明确：扫码打开无法获得 shareTicket，管理员需要前端提供 分享到准入微信群 按钮，分享到目标群后从群卡片重新进入，再点击绑定当前微信群调用 /api/admin/group/bind。下一步补前端分享入口和引导文案。"
   },
   "project": {
     "name": "gangwa-miniapp",
@@ -41,7 +41,7 @@
       "confirmed": true,
       "style": "Valorant 风格：深海军蓝/黑、象牙白文字、高饱和红主色、少量青色状态色",
       "previewUrl": "https://trae.mobile.volcapp.com/preview/?ws=ws://localhost:62048",
-      "lastPreviewRefresh": "2026-06-29：Plan A 五项产品优化已完成，包含准入提示、管理员二次确认、首页状态标签、创建快捷时间、消息提醒说明和状态"
+      "lastPreviewRefresh": "2026-07-10：成员权限管理隐藏当前管理员并隐藏 openid，预览服务已刷新"
     },
     "importantFiles": {
       "apiConfig": "src/config/api.ts",
@@ -1100,11 +1100,12 @@
         "后端解密得到 openGId 并保存为 allowedGroupOpenGid"
       ],
       "userFlow": [
-        "用户从指定微信群小程序卡片进入",
+        "用户必须从指定微信群的小程序卡片进入，扫码或普通打开不会携带 shareTicket",
         "前端提交 shareTicket/getShareInfo 数据给后端",
         "后端解密 openGId 并匹配 allowedGroupOpenGid",
         "匹配成功后写入 groupVerified=true、groupVerifiedAt、groupOpenGid"
-      ]
+      ],
+      "frontendGap": "当前后端 /api/admin/group/bind 已可用，但如果管理员扫码进入后页面没有分享入口，就无法生成群卡片和 shareTicket。下一步需要前端在管理员面板新增 分享到准入微信群 按钮、onShareAppMessage 分享配置，以及 从群卡片进入后绑定当前微信群 的引导。"
     },
     "implementationPhases": [
       {
@@ -1393,6 +1394,8 @@
       "完成 productOptimizationPlanA 第五项：我的页消息提醒增加状态展示（消息提醒：已开启/未开启）和说明文案，说明会收到创建车队成员加入/退出、加入车队被解散、车队状态变化提醒；预览已刷新",
       "确定方案 A 上线稳妥型产品优化最终版：保留未准入/被禁用状态页、管理员禁用二次确认、首页车队状态标签、创建快捷时间、消息提醒说明和状态；不做创建车队模板和加入车队快捷角色/备注",
       "Plan A 五项产品优化均已完成：未准入/被禁用状态页、管理员禁用二次确认、首页车队状态标签、创建快捷时间、消息提醒说明和状态均已落地并复验通过",
+      "补齐微信群准入绑定前端入口：我的页管理员区域新增分享到准入微信群按钮、绑定当前微信群按钮和三步引导；修复 useShareAppMessage 导入；预览服务 JWT 恢复后已刷新",
+      "优化成员权限管理：前端 manageableUsers 过滤当前管理员自己；后端 GET /api/admin/users 不返回当前管理员；成员列表展示昵称和微信身份状态，不展示 openid；已部署大陆服务器并刷新预览",
       "生成本地 Word 产品功能说明文档：港瓦小程序产品功能说明.docx，覆盖产品概述、用户角色、核心功能、访问控制、消息提醒、上线状态、指标和风险预案",
       "确定访问控制最佳方案：微信群 openGId 准入验证 + 管理员 disabled 禁用/恢复 + 核心接口统一权限拦截；短期优先实现管理员禁用/恢复，长期接入微信群验证和 30 天复验"
     ],

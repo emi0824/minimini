@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useShareAppMessage } from '@tarojs/taro';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { getCurrentUser, hasAuthSession } from '@/services/auth';
 import { getSquadsApi, resetSquadsApi, updateNicknameApi } from '@/services/squadApi';
@@ -70,6 +70,7 @@ const MinePage: React.FC = () => {
       ? `消息提醒：部分开启 ${enabledMessageCount}/${subscribeTemplateIds.length}`
       : '消息提醒：未开启';
   const messageButtonText = messageEnabled ? '重新授权消息提醒' : messagePartiallyEnabled ? '继续授权消息提醒' : '授权消息提醒';
+  const manageableUsers = adminUsers.filter((user) => user.openid !== currentUser.openid);
 
   const openDetail = (id: number) => {
     Taro.navigateTo({ url: `/pages/detail/index?id=${id}` });
@@ -152,6 +153,11 @@ const MinePage: React.FC = () => {
     });
   };
 
+  useShareAppMessage(() => ({
+    title: '港瓦夕阳红车队准入验证',
+    path: '/pages/index/index?from=group-bind'
+  }));
+
   const handleReset = () => {
     Taro.showModal({
       title: '重置演示数据',
@@ -170,7 +176,7 @@ const MinePage: React.FC = () => {
       <View className={styles.profileCard}>
         <Text className={styles.kicker}>我的活动档案</Text>
         <Text className={styles.nickname}>{currentUser.nickname}</Text>
-        <Text className={styles.identity}>{isAuthorized ? `微信身份：已授权 · ${currentUser.openid}` : '微信身份：未授权 · 保存昵称时将绑定 openid'}</Text>
+        <Text className={styles.identity}>{isAuthorized ? '微信身份：已授权' : '微信身份：未授权 · 保存昵称时将绑定微信身份'}</Text>
         <Input className={styles.nicknameInput} placeholder='输入游戏昵称' value={nickname} onInput={(event) => setNickname(String(event.detail.value))} />
         <Button className={styles.editButton} onClick={handleSaveNickname}>{isAuthorized ? '保存昵称' : '授权并保存昵称'}</Button>
       </View>
@@ -188,23 +194,37 @@ const MinePage: React.FC = () => {
         )}
         {accessState?.isAdmin && <Text className={styles.rowMeta}>管理员权限：已开启</Text>}
         {!accessState?.isDisabled && <Button className={styles.editButton} onClick={handleVerifyGroup}>验证微信群身份</Button>}
-        {accessState?.isAdmin && <Button className={styles.editButton} onClick={handleBindGroup}>绑定当前微信群</Button>}
       </View>
+
+      {accessState?.isAdmin && (
+        <View className={styles.section}>
+          <Text className={styles.sectionTitle}>准入微信群绑定</Text>
+          <Text className={styles.rowMeta}>扫码打开无法获取微信群 shareTicket。请先把小程序分享到目标微信群，再从群里的小程序卡片重新进入本页，最后点击绑定当前微信群。</Text>
+          <View className={styles.guideSteps}>
+            <Text className={styles.guideStep}>1. 点击分享到准入微信群</Text>
+            <Text className={styles.guideStep}>2. 从目标微信群卡片重新进入</Text>
+            <Text className={styles.guideStep}>3. 回到我的页点击绑定当前微信群</Text>
+          </View>
+          <Button className={styles.editButton} openType='share'>分享到准入微信群</Button>
+          <Button className={styles.editButton} onClick={handleBindGroup}>绑定当前微信群</Button>
+        </View>
+      )}
 
       {accessState?.isAdmin && (
         <View className={styles.section}>
           <Text className={styles.sectionTitle}>成员权限管理</Text>
           <Input className={styles.nicknameInput} placeholder='禁用原因' value={disableReason} onInput={(event) => setDisableReason(String(event.detail.value))} />
-          {adminUsers.map((user) => (
+          {manageableUsers.map((user) => (
             <View className={styles.row} key={user.openid}>
               <View>
                 <Text className={styles.rowTitle}>{user.nickname}</Text>
-                <Text className={styles.rowMeta}>{user.openid}</Text>
+                <Text className={styles.rowMeta}>微信身份：已授权</Text>
                 <Text className={styles.rowMeta}>{user.disabled ? `已禁用 · ${user.disabledReason || '无原因'}` : '可使用'}</Text>
               </View>
               <Text className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Text>
             </View>
           ))}
+          {manageableUsers.length === 0 && <Text className={styles.rowMeta}>暂无可管理成员</Text>}
         </View>
       )}
 

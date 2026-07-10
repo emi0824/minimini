@@ -559,8 +559,8 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/admin/users' && req.method === 'GET') {
       const data = readData();
-      requireAdmin(req, data);
-      ok(res, data.users.map(publicUser));
+      const admin = requireAdmin(req, data);
+      ok(res, data.users.filter((user) => user.openid !== admin.openid).map(publicUser));
       return;
     }
 
