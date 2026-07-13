@@ -122,7 +122,8 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
       ? `消息提醒：部分开启 ${enabledMessageCount}/${subscribeTemplateIds.length}`
       : '消息提醒：未开启';
   const messageButtonText = messageEnabled ? '重新授权消息提醒' : messagePartiallyEnabled ? '继续授权消息提醒' : '授权消息提醒';
-  const manageableUsers = adminUsers.filter((user) => user.openid !== currentUser.openid);
+  const authenticatedUser = accessState?.user || currentUser;
+  const manageableUsers = adminUsers.filter((user) => user.openid !== authenticatedUser.openid);
   const canManageAdminRole = accessState?.isRootAdmin === true;
 
   const openDetail = (id: number) => {
@@ -313,7 +314,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
                 <Text className={styles.rowMeta}>{user.disabled ? `已禁用 · ${user.disabledReason || '无原因'}` : '可使用'}</Text>
               </View>
               <View className={styles.rowActions}>
-                {canManageAdminRole && (user.role === 'admin'
+                {canManageAdminRole && user.openid !== authenticatedUser.openid && (user.role === 'admin'
                   ? <Text className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</Text>
                   : <Text className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</Text>)}
                 <Text className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Text>
