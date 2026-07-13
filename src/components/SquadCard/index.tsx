@@ -6,15 +6,15 @@ import { getCurrentUser } from '@/services/auth';
 import { joinSquadApi } from '@/services/squadApi';
 import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
 import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
+import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import StatusPill from '@/components/StatusPill';
 import styles from './index.module.scss';
 
 interface SquadCardProps {
   squad: Squad;
-  onChanged?: () => void;
 }
 
-const SquadCard: React.FC<SquadCardProps> = ({ squad, onChanged }) => {
+const SquadCard: React.FC<SquadCardProps> = ({ squad }) => {
   const user = getCurrentUser();
   const joinedCount = squad.passengers.length;
   const restCount = Math.max(squad.capacity - joinedCount, 0);
@@ -37,8 +37,8 @@ const SquadCard: React.FC<SquadCardProps> = ({ squad, onChanged }) => {
     try {
       await requestSquadStatusChangeSubscribe();
       await joinSquadApi(squad.id, { role: '补位' });
+      markPagesNeedRefresh();
       Taro.showToast({ title: '已加入车队', icon: 'success' });
-      onChanged?.();
       setTimeout(() => Taro.navigateTo({ url: `/pages/detail/index?id=${squad.id}` }), 350);
     } catch (error) {
       console.error('[SquadCard] join failed', error);

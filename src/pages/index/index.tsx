@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useRouter } from '@tarojs/taro';
 import SquadCard from '@/components/SquadCard';
+import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { getSquadsApi } from '@/services/squadApi';
 import { ensureAuthenticatedUser, hasAuthSession } from '@/services/auth';
-import { getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
+import { getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
 
@@ -14,33 +15,60 @@ const sortSquadsByDepartTime = (items: Squad[]) => (
 );
 
 type AccessViewStatus = 'checking' | 'allowed' | 'needAuth' | 'needGroup' | 'disabled';
+type HomeTab = 'lobby' | 'mine';
 
 const IndexPage: React.FC = () => {
-  const { version, refresh } = useFocusRefresh();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<HomeTab>(() => (router.params.tab === 'mine' ? 'mine' : 'lobby'));
+  const { version } = useFocusRefresh();
   const [squads, setSquads] = useState<Squad[]>([]);
-  const [accessStatus, setAccessStatus] = useState<AccessViewStatus>('checking');
-  const [accessMessage, setAccessMessage] = useState('正在检查微信群准入状态...');
+  const [accessStatus, setAccessStatus] = useState<AccessViewStatus>(() => {
+    if (!hasAuthSession()) return 'needAuth';
+    const cachedState = getCachedAccessState();
+    if (cachedState.isDisabled) return 'disabled';
+    return cachedState.needsGroupVerify ? 'needGroup' : 'allowed';
+  });
+  const [accessMessage, setAccessMessage] = useState(() => {
+    if (!hasAuthSession()) return '请先授权微信身份。管理员授权后可直接进入；普通成员需从准入微信群卡片进入完成验证。';
+    const cachedState = getCachedAccessState();
+    if (cachedState.isDisabled) return '你的使用权限已被管理员移除。如需恢复，请联系群管理员确认。';
+    return cachedState.needsGroupVerify ? '本小程序仅限指定车队群成员使用。请从群内分享的小程序卡片进入，完成成员验证后即可使用。' : '权限正常';
+  });
+  const accessStatusRef = useRef(accessStatus);
+  const loadSeqRef = useRef(0);
 
-  const loadSquads = async () => {
+  useEffect(() => {
+    accessStatusRef.current = accessStatus;
+  }, [accessStatus]);
+
+  const loadSquads = async (isLatestLoad: () => boolean) => {
     const items = await getSquadsApi();
+    if (!isLatestLoad()) return;
     setSquads(sortSquadsByDepartTime(items));
     setAccessStatus('allowed');
   };
 
   const checkAccessAndLoad = async () => {
-    setAccessStatus('checking');
-    setAccessMessage('正在检查微信群准入状态...');
+    const loadSeq = loadSeqRef.current + 1;
+    loadSeqRef.current = loadSeq;
+    const isLatestLoad = () => loadSeqRef.current === loadSeq;
+    const wasAllowed = accessStatusRef.current === 'allowed';
+    if (!wasAllowed) {
+      setAccessStatus('checking');
+      setAccessMessage('正在检查微信群准入状态...');
+    }
     try {
       if (!hasAuthSession()) {
-        setSquads([]);
+        if (!wasAllowed) setSquads([]);
         setAccessStatus('needAuth');
         setAccessMessage('请先授权微信身份，随后从准入微信群卡片进入完成成员验证。');
         return;
       }
 
       const state = await getAccessState();
+      if (!isLatestLoad()) return;
       if (state.isDisabled) {
-        setSquads([]);
+        if (!wasAllowed) setSquads([]);
         setAccessStatus('disabled');
         setAccessMessage('你的使用权限已被管理员移除。如需恢复，请联系群管理员确认。');
         return;
@@ -49,19 +77,20 @@ const IndexPage: React.FC = () => {
       if (state.needsGroupVerify) {
         try {
           await verifyWechatGroupAccess();
-          await loadSquads();
+          await loadSquads(isLatestLoad);
         } catch (error) {
-          setSquads([]);
+          if (!wasAllowed) setSquads([]);
           setAccessStatus('needGroup');
           setAccessMessage('本小程序仅限指定车队群成员使用。请从群内分享的小程序卡片进入，完成成员验证后即可使用。');
         }
         return;
       }
 
-      await loadSquads();
+      await loadSquads(isLatestLoad);
     } catch (error) {
       console.error('[Lobby] access check failed', error);
-      setSquads([]);
+      if (!isLatestLoad()) return;
+      if (!wasAllowed) setSquads([]);
       setAccessStatus('needAuth');
       setAccessMessage(error instanceof Error ? error.message : '请先授权微信身份');
     }
@@ -120,29 +149,29 @@ const IndexPage: React.FC = () => {
 
   return (
     <View className={styles.page} data-version={version}>
-      <View className={styles.hero}>
-        <View className={styles.heroGrid} />
-        <Text className={styles.eyebrow}>今日车队调度</Text>
-        <Text className={styles.title}>港瓦夕阳红</Text>
-        <Text className={styles.subtitle}>好友活动时间协调</Text>
-        <View className={styles.statsRow}>
-          <View className={styles.statItem}>
-            <Text className={styles.statValue}>{canUseLobby ? squads.length : '--'}</Text>
-            <Text className={styles.statLabel}>车队</Text>
-          </View>
-          <View className={styles.statItem}>
-            <Text className={styles.statValue}>{canUseLobby ? totalPassengers : '--'}</Text>
-            <Text className={styles.statLabel}>待命</Text>
-          </View>
-          <View className={styles.statItem}>
-            <Text className={styles.statValue}>{canUseLobby ? nextSquad?.departTime || '--:--' : '--:--'}</Text>
-            <Text className={styles.statLabel}>下一班</Text>
+      <View className={activeTab === 'lobby' ? styles.tabPaneActive : styles.tabPaneHidden}>
+        <View className={styles.hero}>
+          <View className={styles.heroGrid} />
+          <Text className={styles.eyebrow}>今日车队调度</Text>
+          <Text className={styles.title}>港瓦夕阳红</Text>
+          <Text className={styles.subtitle}>好友活动时间协调</Text>
+          <View className={styles.statsRow}>
+            <View className={styles.statItem}>
+              <Text className={styles.statValue}>{canUseLobby ? squads.length : '--'}</Text>
+              <Text className={styles.statLabel}>车队</Text>
+            </View>
+            <View className={styles.statItem}>
+              <Text className={styles.statValue}>{canUseLobby ? totalPassengers : '--'}</Text>
+              <Text className={styles.statLabel}>待命</Text>
+            </View>
+            <View className={styles.statItem}>
+              <Text className={styles.statValue}>{canUseLobby ? nextSquad?.departTime || '--:--' : '--:--'}</Text>
+              <Text className={styles.statLabel}>下一班</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {canUseLobby && (
-        <>
+        <View className={canUseLobby ? styles.lobbyContent : styles.lobbyContentHidden}>
           <View className={styles.commandPanel}>
             <Button className={styles.primaryAction} onClick={handleCreate}>创建车队</Button>
             <Button className={styles.secondaryAction} onClick={handleCopy}>复制战报</Button>
@@ -158,24 +187,37 @@ const IndexPage: React.FC = () => {
 
           <View className={styles.list}>
             {squads.map((squad) => (
-              <SquadCard squad={squad} key={squad.id} onChanged={refresh} />
+              <SquadCard squad={squad} key={squad.id} />
             ))}
             {squads.length === 0 && <Text className={styles.sectionDesc}>暂无车队，快来创建第一辆。</Text>}
           </View>
-        </>
-      )}
-
-      {!canUseLobby && (
-        <View className={styles.accessOverlay}>
-          <View className={styles.accessModal}>
-            <Text className={styles.accessTitle}>{accessTitle}</Text>
-            <Text className={styles.accessDesc}>{accessMessage}</Text>
-            {accessStatus !== 'checking' && accessStatus !== 'disabled' && (
-              <Button className={styles.primaryAction} onClick={handleAuthorizeAndVerify}>{accessButtonText}</Button>
-            )}
-          </View>
         </View>
-      )}
+
+        {!canUseLobby && (
+          <View className={styles.accessOverlay}>
+            <View className={styles.accessModal}>
+              <Text className={styles.accessTitle}>{accessTitle}</Text>
+              <Text className={styles.accessDesc}>{accessMessage}</Text>
+              {accessStatus !== 'checking' && accessStatus !== 'disabled' && (
+                <Button className={styles.primaryAction} onClick={handleAuthorizeAndVerify}>{accessButtonText}</Button>
+              )}
+            </View>
+          </View>
+        )}
+      </View>
+
+      <View className={activeTab === 'mine' ? styles.tabPaneActive : styles.tabPaneHidden}>
+        <MinePage active={activeTab === 'mine'} />
+      </View>
+
+      <View className={styles.customTabBar}>
+        <View className={activeTab === 'lobby' ? styles.customTabActive : styles.customTab} onClick={() => setActiveTab('lobby')}>
+          <Text>大厅</Text>
+        </View>
+        <View className={activeTab === 'mine' ? styles.customTabActive : styles.customTab} onClick={() => setActiveTab('mine')}>
+          <Text>我的</Text>
+        </View>
+      </View>
     </View>
   );
 };

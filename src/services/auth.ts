@@ -47,6 +47,12 @@ const loginWithWechat = async (nickname: string): Promise<UserProfile> => {
   return saveSession(await request<LoginResponse>('/api/auth/wechat-login', 'POST', { code: loginResult.code, nickname }, { skipAuth: true }));
 };
 
+export const refreshWechatSession = async (nickname?: string): Promise<UserProfile> => {
+  if (Taro.getEnv() === Taro.ENV_TYPE.WEB) throw new Error('H5 预览不支持刷新微信登录态');
+  const cached = getCurrentUser();
+  return loginWithWechat(nickname?.trim() || cached.nickname || '未命名成员');
+};
+
 const loginAsGuest = async (nickname: string): Promise<UserProfile> => (
   saveSession(await request<LoginResponse>('/api/auth/guest-login', 'POST', { nickname }, { skipAuth: true }))
 );

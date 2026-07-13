@@ -1,12 +1,23 @@
 @use '@/styles/compat.scss';
 @use '@/styles/variables.scss' as *;
 
-page {
+html,
+body,
+page,
+#app,
+taro-page,
+.taro_page {
+  min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', sans-serif;
   font-size: $font-size-md;
   line-height: $line-height-normal;
   color: $color-text-primary;
-  background: $color-bg-page;
+  background-color: $color-bg-page;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
 }
 
 view,

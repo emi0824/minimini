@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/services/auth';
 import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi } from '@/services/squadApi';
 import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
 import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
+import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
 
@@ -71,6 +72,7 @@ const DetailPage: React.FC = () => {
         try {
           if (!await ensureAuthorizedOrRedirect()) return;
           await leaveSquadApi(squad.id);
+          markPagesNeedRefresh();
           Taro.showToast({ title: '已退出', icon: 'success' });
           forceRefresh();
         } catch (error) {
@@ -90,8 +92,9 @@ const DetailPage: React.FC = () => {
         if (!res.confirm) return;
         try {
           await dismissSquadApi(squad.id);
+          markPagesNeedRefresh();
           Taro.showToast({ title: '已解散', icon: 'success' });
-          setTimeout(() => Taro.switchTab({ url: '/pages/index/index' }), 400);
+          setTimeout(() => Taro.redirectTo({ url: '/pages/index/index' }), 400);
         } catch (error) {
           console.error('[Detail] dismiss failed', error);
           Taro.showToast({ title: error instanceof Error ? error.message : '解散失败', icon: 'none' });

@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/services/auth';
 import { createSquadApi } from '@/services/squadApi';
 import { requestSquadMemberChangeSubscribe } from '@/services/subscription';
 import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
+import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import styles from './index.module.scss';
 
 const quickTags = ['接受分差', '不接受分差', '排位车', '匹配车', '晨练车', '破冰专属'];
@@ -63,6 +64,7 @@ const CreatePage: React.FC = () => {
         tags: selectedTags
       });
       console.info('[Create] created squad', { id: squad.id });
+      markPagesNeedRefresh();
       Taro.showToast({ title: '车队已创建', icon: 'success' });
       setTimeout(() => Taro.redirectTo({ url: `/pages/detail/index?id=${squad.id}` }), 500);
     } catch (error) {

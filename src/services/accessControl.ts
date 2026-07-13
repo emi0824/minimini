@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro';
-import { ensureAuthenticatedUser, getAuthToken, getCurrentUser, saveUserProfile } from '@/services/auth';
+import { ensureAuthenticatedUser, getAuthToken, getCurrentUser, refreshWechatSession, saveUserProfile } from '@/services/auth';
 import { request } from '@/services/request';
 import { UserProfile } from '@/types/squad';
 
@@ -14,14 +14,20 @@ export interface AccessState {
 }
 
 const isWeb = () => Taro.getEnv() === Taro.ENV_TYPE.WEB;
+const SHARE_TICKET_KEY = 'gangwa_latest_share_ticket';
+
+const getCurrentShareTicket = () => {
+  const enterOptions = Taro.getEnterOptionsSync?.();
+  const launchOptions = Taro.getLaunchOptionsSync?.();
+  return enterOptions?.shareTicket || launchOptions?.shareTicket || Taro.getStorageSync<string>(SHARE_TICKET_KEY) || '';
+};
 
 export const getMe = async () => {
   const user = await request<UserProfile>('/api/users/me');
   return saveUserProfile(user);
 };
 
-export const getAccessState = async (): Promise<AccessState> => {
-  const user = await getMe();
+const createAccessState = (user: UserProfile): AccessState => {
   const isAdmin = user.role === 'admin';
   const isRootAdmin = user.isRootAdmin === true;
   const isDisabled = user.disabled === true;
@@ -36,6 +42,10 @@ export const getAccessState = async (): Promise<AccessState> => {
   return { user, isAdmin, isRootAdmin, isDisabled, isGroupVerified, needsGroupVerify, message };
 };
 
+export const getCachedAccessState = () => createAccessState(getCurrentUser());
+
+export const getAccessState = async (): Promise<AccessState> => createAccessState(await getMe());
+
 export const ensureActiveAccess = async () => {
   await ensureAuthenticatedUser();
   const state = await getAccessState();
@@ -47,7 +57,7 @@ export const ensureAuthorizedOrRedirect = async () => {
   const cached = getCurrentUser();
   if (!getAuthToken() || cached.nickname === '未命名成员') {
     Taro.showToast({ title: '请先授权并填写昵称', icon: 'none' });
-    setTimeout(() => Taro.switchTab({ url: '/pages/mine/index' }), 350);
+    setTimeout(() => Taro.redirectTo({ url: '/pages/index/index?tab=mine' }), 350);
     return false;
   }
 
@@ -55,23 +65,22 @@ export const ensureAuthorizedOrRedirect = async () => {
     const state = await getAccessState();
     if (state.isDisabled || state.needsGroupVerify) {
       Taro.showToast({ title: state.message, icon: 'none' });
-      setTimeout(() => Taro.switchTab({ url: '/pages/mine/index' }), 350);
+      setTimeout(() => Taro.redirectTo({ url: '/pages/index/index?tab=mine' }), 350);
       return false;
     }
     return true;
   } catch (error) {
     Taro.showToast({ title: '授权已失效，请重新授权', icon: 'none' });
-    setTimeout(() => Taro.switchTab({ url: '/pages/mine/index' }), 350);
+    setTimeout(() => Taro.redirectTo({ url: '/pages/index/index?tab=mine' }), 350);
     return false;
   }
 };
 
 export const verifyWechatGroupAccess = async () => {
-  await ensureAuthenticatedUser();
+  await refreshWechatSession();
   if (isWeb()) throw new Error('H5 预览无法完成微信群验证，请使用微信小程序从群卡片进入');
 
-  const launchOptions = Taro.getLaunchOptionsSync?.();
-  const shareTicket = launchOptions?.shareTicket;
+  const shareTicket = getCurrentShareTicket();
   if (!shareTicket) throw new Error('请从指定微信群的小程序卡片进入后再验证');
 
   const shareInfo = await Taro.getShareInfo({ shareTicket });
@@ -84,18 +93,19 @@ export const verifyWechatGroupAccess = async () => {
 };
 
 export const bindWechatGroup = async () => {
-  await ensureAuthenticatedUser();
+  await refreshWechatSession();
   if (isWeb()) throw new Error('H5 预览无法绑定微信群，请使用微信小程序从目标群卡片进入');
 
-  const launchOptions = Taro.getLaunchOptionsSync?.();
-  const shareTicket = launchOptions?.shareTicket;
+  const shareTicket = getCurrentShareTicket();
   if (!shareTicket) throw new Error('请管理员从目标微信群的小程序卡片进入后再绑定');
 
   const shareInfo = await Taro.getShareInfo({ shareTicket });
-  return request<{ allowedGroupOpenGid: string; boundBy: string }>('/api/admin/group/bind', 'POST', {
+  const result = await request<{ allowedGroupOpenGid: string; boundBy: string }>('/api/admin/group/bind', 'POST', {
     encryptedData: shareInfo.encryptedData,
     iv: shareInfo.iv
   });
+  Taro.removeStorageSync(SHARE_TICKET_KEY);
+  return result;
 };
 
 export const getAdminUsers = () => request<UserProfile[]>('/api/admin/users');

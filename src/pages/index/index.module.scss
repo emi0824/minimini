@@ -2,10 +2,21 @@
 
 .page {
   min-height: 100vh;
-  padding: 32rpx $page-padding 48rpx;
+  position: relative;
+  overflow-x: hidden;
+  padding: 32rpx $page-padding 148rpx;
+  background-color: $color-bg-page;
   background:
     radial-gradient(circle at 85% 0%, rgba(255, 70, 85, 0.18), transparent 34%),
     linear-gradient(180deg, $color-bg-page 0%, #0b121a 100%);
+}
+
+.tabPaneActive {
+  display: block;
+}
+
+.tabPaneHidden {
+  display: none;
 }
 
 .hero {
@@ -107,6 +118,16 @@
   font-size: 22rpx;
 }
 
+.lobbyContent {
+  min-height: 420rpx;
+}
+
+.lobbyContentHidden {
+  min-height: 420rpx;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .commandPanel {
   display: flex;
   gap: 16rpx;
@@ -182,15 +203,15 @@
 }
 
 .accessOverlay {
-  position: fixed;
+  position: absolute;
   z-index: 20;
   inset: 0;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 56rpx 44rpx;
-  background: rgba(8, 13, 18, 0.88);
-  backdrop-filter: blur(10rpx);
+  background: rgba(8, 13, 18, 0.94);
 }
 
 .accessModal {
@@ -227,4 +248,37 @@
 
 .accessModal .primaryAction {
   margin-top: 32rpx;
+}
+
+.customTabBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  height: 112rpx;
+  padding: 12rpx 48rpx calc(12rpx + env(safe-area-inset-bottom));
+  display: flex;
+  gap: 20rpx;
+  background: rgba(15, 25, 35, 0.98);
+  border-top: 1rpx solid rgba(236, 232, 225, 0.08);
+}
+
+.customTab,
+.customTabActive {
+  flex: 1;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $color-text-tertiary;
+  font-size: 26rpx;
+  font-weight: $font-weight-bold;
+  border: 1rpx solid transparent;
+}
+
+.customTabActive {
+  color: $color-primary;
+  border-color: rgba(255, 70, 85, 0.45);
+  background: rgba(255, 70, 85, 0.1);
 }

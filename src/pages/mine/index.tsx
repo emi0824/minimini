@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useShareAppMessage } from '@tarojs/taro';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
@@ -13,51 +13,83 @@ import {
   enableUser,
   getAccessState,
   getAdminUsers,
+  getCachedAccessState,
   promoteUserToAdmin,
   verifyWechatGroupAccess
 } from '@/services/accessControl';
 import { Squad, UserProfile } from '@/types/squad';
 import styles from './index.module.scss';
 
-const MinePage: React.FC = () => {
+interface MinePageProps {
+  active?: boolean;
+}
+
+const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
   const { version, refresh } = useFocusRefresh();
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => getCurrentUser());
   const [nickname, setNickname] = useState(currentUser.nickname === '未命名成员' ? '' : currentUser.nickname);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [isAuthorized, setIsAuthorized] = useState(() => hasAuthSession());
-  const [accessState, setAccessState] = useState<AccessState | undefined>();
+  const [accessState, setAccessState] = useState<AccessState | undefined>(() => (hasAuthSession() ? getCachedAccessState() : undefined));
   const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
   const [disableReason, setDisableReason] = useState('不符合车队使用规则');
+  const refreshSeqRef = useRef(0);
 
   const refreshAccessState = async () => {
+    const refreshSeq = refreshSeqRef.current + 1;
+    refreshSeqRef.current = refreshSeq;
+    const isLatestRefresh = () => refreshSeqRef.current === refreshSeq;
     try {
       const state = await getAccessState();
+      if (!isLatestRefresh()) return;
+
       setAccessState(state);
       setCurrentUser(state.user);
       setIsAuthorized(true);
       if (state.needsGroupVerify) {
         try {
           const result = await verifyWechatGroupAccess();
+          if (!isLatestRefresh()) return;
           setCurrentUser(result.user);
           setAccessState({ ...state, user: result.user, isGroupVerified: true, needsGroupVerify: false, message: '权限正常' });
-          setSquads(await getSquadsApi());
+          const nextSquads = await getSquadsApi();
+          if (isLatestRefresh()) setSquads(nextSquads);
         } catch (error) {
-          setSquads([]);
+          if (isLatestRefresh()) setSquads([]);
         }
       } else if (!state.isDisabled) {
-        setSquads(await getSquadsApi());
+        const nextSquads = await getSquadsApi();
+        if (isLatestRefresh()) setSquads(nextSquads);
       } else {
         setSquads([]);
       }
-      if (state.isAdmin) setAdminUsers(await getAdminUsers());
+      if (state.isAdmin) {
+        const nextAdminUsers = await getAdminUsers();
+        if (isLatestRefresh()) setAdminUsers(nextAdminUsers);
+      }
     } catch (error) {
       console.info('[Mine] access state skipped', error);
+      if (isLatestRefresh() && !accessState) setIsAuthorized(false);
     }
   };
 
   useEffect(() => {
-    if (isAuthorized) refreshAccessState();
-  }, [isAuthorized, version]);
+    if (!active) return;
+
+    const hasSession = hasAuthSession();
+    setIsAuthorized(hasSession);
+
+    if (!hasSession) {
+      setAccessState(undefined);
+      return;
+    }
+
+    const cachedUser = getCurrentUser();
+    setCurrentUser(cachedUser);
+    setNickname(cachedUser.nickname === '未命名成员' ? '' : cachedUser.nickname);
+    setAccessState(getCachedAccessState());
+    refreshAccessState();
+  }, [active, version]);
 
   const joined = squads.filter((item) => Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid));
   const created = squads.filter((item) => Boolean(item.isCreator) || item.creatorOpenid === currentUser.openid);
@@ -211,7 +243,7 @@ const MinePage: React.FC = () => {
 
   useShareAppMessage(() => ({
     title: '港瓦夕阳红车队准入验证',
-    path: '/pages/index/index?from=group-bind'
+    path: '/pages/index/index?tab=mine&from=group-bind'
   }));
 
   const handleReset = () => {
@@ -227,23 +259,10 @@ const MinePage: React.FC = () => {
     });
   };
 
-  if (!canViewMine) {
-    return (
-      <View className={styles.page}>
-        <View className={styles.accessOverlay}>
-          <View className={styles.accessModal}>
-            <Text className={styles.accessTitle}>{accessOverlayTitle}</Text>
-            <Text className={styles.accessDesc}>{accessOverlayDesc}</Text>
-            {(!isAuthorized || accessState?.needsGroupVerify) && <Button className={styles.editButton} onClick={handleAuthorizeAndCheck}>{accessOverlayButtonText}</Button>}
-          </View>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View className={styles.page}>
-      <View className={styles.profileCard}>
+      <View className={canViewMine ? styles.mineContent : styles.mineContentHidden}>
+        <View className={styles.profileCard}>
         <Text className={styles.kicker}>我的活动档案</Text>
         <Text className={styles.nickname}>{currentUser.nickname}</Text>
         <Text className={styles.identity}>{isAuthorized ? '微信身份：已授权' : '微信身份：未授权 · 保存昵称时将绑定微信身份'}</Text>
@@ -341,7 +360,18 @@ const MinePage: React.FC = () => {
         <Button className={styles.editButton} onClick={handleSubscribeMessages}>{messageButtonText}</Button>
       </View>
 
-      <Button className={styles.editButton} onClick={handleReset}>重置演示数据</Button>
+        <Button className={styles.editButton} onClick={handleReset}>重置演示数据</Button>
+      </View>
+
+      {!canViewMine && (
+        <View className={styles.accessOverlay}>
+          <View className={styles.accessModal}>
+            <Text className={styles.accessTitle}>{accessOverlayTitle}</Text>
+            <Text className={styles.accessDesc}>{accessOverlayDesc}</Text>
+            {(!isAuthorized || accessState?.needsGroupVerify) && <Button className={styles.editButton} onClick={handleAuthorizeAndCheck}>{accessOverlayButtonText}</Button>}
+          </View>
+        </View>
+      )}
     </View>
   );
 };
