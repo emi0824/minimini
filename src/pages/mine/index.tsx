@@ -242,8 +242,9 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
   };
 
   useShareAppMessage(() => ({
-    title: '港瓦夕阳红车队准入验证',
-    path: '/pages/index/index?tab=mine&from=group-bind'
+    title: '港瓦夕阳红车队集合',
+    path: '/pages/index/index',
+    imageUrl: '/assets/share-card.jpg'
   }));
 
   const handleReset = () => {

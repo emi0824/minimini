@@ -3,7 +3,7 @@ import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { Squad } from '@/types/squad';
 import { getCurrentUser } from '@/services/auth';
-import { joinSquadApi } from '@/services/squadApi';
+import { joinSquadApi, updateNicknameApi } from '@/services/squadApi';
 import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
 import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
@@ -36,6 +36,7 @@ const SquadCard: React.FC<SquadCardProps> = ({ squad }) => {
     if (!await ensureAuthorizedOrRedirect()) return;
     try {
       await requestSquadStatusChangeSubscribe();
+      if (user.nickname && user.nickname !== '未命名成员') await updateNicknameApi(user.nickname);
       await joinSquadApi(squad.id, { role: '补位' });
       markPagesNeedRefresh();
       Taro.showToast({ title: '已加入车队', icon: 'success' });

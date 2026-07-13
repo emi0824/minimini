@@ -472,7 +472,10 @@ const notifyStatusChanged = (dataSnapshot, userOpenid, squad, thing) => sendSubs
 
 const loginResponse = async (userOpenid, userNickname, sessionKey) => withWriteLock((data) => {
   const user = getOrCreateUser(data, userOpenid, userNickname);
-  user.nickname = userNickname || user.nickname;
+  if (userNickname && userNickname !== '未命名成员') {
+    user.nickname = userNickname;
+    syncUserNicknameInSquads(data, user.openid, userNickname);
+  }
   delete user.sessionKey;
   if (sessionKey) sessionKeyCache.set(user.openid, { sessionKey, expiresAt: Date.now() + TOKEN_TTL });
   return { token: createToken(user.openid), user: publicUser(user) };

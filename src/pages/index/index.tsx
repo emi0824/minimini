@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button } from '@tarojs/components';
-import Taro, { useRouter } from '@tarojs/taro';
+import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro';
 import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
@@ -34,6 +34,12 @@ const IndexPage: React.FC = () => {
     if (cachedState.isDisabled) return '你的使用权限已被管理员移除。如需恢复，请联系群管理员确认。';
     return cachedState.needsGroupVerify ? '本小程序仅限指定车队群成员使用。请从群内分享的小程序卡片进入，完成成员验证后即可使用。' : '权限正常';
   });
+
+  useShareAppMessage(() => ({
+    title: '港瓦夕阳红车队集合',
+    path: '/pages/index/index',
+    imageUrl: '/assets/share-card.jpg'
+  }));
   const accessStatusRef = useRef(accessStatus);
   const loadSeqRef = useRef(0);
 

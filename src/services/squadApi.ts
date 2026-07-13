@@ -46,7 +46,8 @@ export const getSquadByIdApi = async (id: number): Promise<Squad | undefined> =>
 
 export const createSquadApi = async (input: CreateSquadInput): Promise<Squad> => {
   if (isRemoteApiEnabled()) {
-    await ensureActiveAccess();
+    const state = await ensureActiveAccess();
+    if (state.user.nickname && state.user.nickname !== '未命名成员') await updateRemoteNickname(state.user.nickname);
     return createRemoteSquad(input);
   }
   return createSquad(input);
@@ -54,7 +55,8 @@ export const createSquadApi = async (input: CreateSquadInput): Promise<Squad> =>
 
 export const joinSquadApi = async (squadId: number, input: JoinSquadInput): Promise<Squad> => {
   if (isRemoteApiEnabled()) {
-    await ensureActiveAccess();
+    const state = await ensureActiveAccess();
+    if (state.user.nickname && state.user.nickname !== '未命名成员') await updateRemoteNickname(state.user.nickname);
     return joinRemoteSquad(squadId, input);
   }
   return joinSquad(squadId, input);
