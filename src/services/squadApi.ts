@@ -1,5 +1,5 @@
 import { isRemoteApiEnabled } from '@/config/api';
-import { ensureAuthenticatedUser, saveUserProfile, updateNickname } from '@/services/auth';
+import { bindWechatUserWithNickname, saveUserProfile, updateNickname } from '@/services/auth';
 import { ensureActiveAccess } from '@/services/accessControl';
 import {
   createSquad,
@@ -26,7 +26,7 @@ import { Squad, UserProfile } from '@/types/squad';
 
 export const updateNicknameApi = async (nickname: string): Promise<UserProfile> => {
   if (isRemoteApiEnabled()) {
-    await ensureAuthenticatedUser(nickname);
+    await bindWechatUserWithNickname(nickname);
     return saveUserProfile(await updateRemoteNickname(nickname));
   }
   const user = updateNickname(nickname);
