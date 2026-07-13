@@ -33,7 +33,6 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
   const [isAuthorized, setIsAuthorized] = useState(() => hasAuthSession());
   const [accessState, setAccessState] = useState<AccessState | undefined>(() => (hasAuthSession() ? getCachedAccessState() : undefined));
   const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
-  const [disableReason, setDisableReason] = useState('不符合车队使用规则');
   const refreshSeqRef = useRef(0);
 
   const refreshAccessState = async () => {
@@ -170,40 +169,38 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
     }
   };
 
-  const handlePromoteUser = (user: UserProfile) => {
-    Taro.showModal({
+  const handlePromoteUser = async (user: UserProfile) => {
+    const result = await Taro.showModal({
       title: '设置管理员',
       content: `确认将 ${user.nickname} 设置为管理员？设置后该成员可管理成员权限和绑定准入微信群。`,
-      confirmText: '设为管理员',
-      success: async (res) => {
-        if (!res.confirm) return;
-        try {
-          await promoteUserToAdmin(user.openid);
-          setAdminUsers(await getAdminUsers());
-          Taro.showToast({ title: '已设为管理员', icon: 'success' });
-        } catch (error) {
-          Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
-        }
-      }
+      confirmText: '设为管理员'
     });
+    if (!result.confirm) return;
+
+    try {
+      await promoteUserToAdmin(user.openid);
+      setAdminUsers(await getAdminUsers());
+      Taro.showToast({ title: '已设为管理员', icon: 'success' });
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
+    }
   };
 
-  const handleDemoteUser = (user: UserProfile) => {
-    Taro.showModal({
+  const handleDemoteUser = async (user: UserProfile) => {
+    const result = await Taro.showModal({
       title: '取消管理员',
       content: `确认取消 ${user.nickname} 的管理员身份？取消后该成员将按普通成员准入规则使用。`,
-      confirmText: '取消管理员',
-      success: async (res) => {
-        if (!res.confirm) return;
-        try {
-          await demoteAdminUser(user.openid);
-          setAdminUsers(await getAdminUsers());
-          Taro.showToast({ title: '已取消管理员', icon: 'success' });
-        } catch (error) {
-          Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
-        }
-      }
+      confirmText: '取消管理员'
     });
+    if (!result.confirm) return;
+
+    try {
+      await demoteAdminUser(user.openid);
+      setAdminUsers(await getAdminUsers());
+      Taro.showToast({ title: '已取消管理员', icon: 'success' });
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
+    }
   };
 
   const handleToggleUser = (user: UserProfile) => {
@@ -217,7 +214,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
           if (user.disabled) {
             await enableUser(user.openid);
           } else {
-            await disableUser(user.openid, disableReason.trim() || '管理员禁用');
+            await disableUser(user.openid, '管理员禁用');
           }
           setAdminUsers(await getAdminUsers());
           Taro.showToast({ title: user.disabled ? '已恢复成员' : '已禁用成员', icon: 'success' });
@@ -306,7 +303,6 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
       {accessState?.isAdmin && (
         <View className={styles.section}>
           <Text className={styles.sectionTitle}>成员权限管理</Text>
-          <Input className={styles.nicknameInput} placeholder='禁用原因' value={disableReason} onInput={(event) => setDisableReason(String(event.detail.value))} />
           {manageableUsers.map((user) => (
             <View className={styles.row} key={user.openid}>
               <View>
