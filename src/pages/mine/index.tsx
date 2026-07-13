@@ -315,9 +315,9 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
               </View>
               <View className={styles.rowActions}>
                 {canManageAdminRole && user.openid !== authenticatedUser.openid && (user.role === 'admin'
-                  ? <Text className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</Text>
-                  : <Text className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</Text>)}
-                <Text className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Text>
+                  ? <View className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</View>
+                  : <View className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</View>)}
+                <View className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</View>
               </View>
             </View>
           ))}

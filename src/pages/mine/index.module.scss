@@ -159,9 +159,13 @@
 }
 
 .rowAction {
+  min-width: 128rpx;
+  padding: 10rpx 0 10rpx 20rpx;
   color: $color-primary;
   font-size: 24rpx;
   font-weight: $font-weight-bold;
+  line-height: 1.4;
+  text-align: right;
   white-space: nowrap;
 }
 
