@@ -5,7 +5,7 @@ import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { getSquadsApi } from '@/services/squadApi';
-import { ensureAuthenticatedUser, hasAuthSession, restoreWechatSession } from '@/services/auth';
+import { ensureAuthenticatedUser, hasAuthSession } from '@/services/auth';
 import { getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
@@ -64,8 +64,6 @@ const IndexPage: React.FC = () => {
       setAccessMessage('正在检查微信群准入状态...');
     }
     try {
-      if (!hasAuthSession()) await restoreWechatSession();
-
       if (!hasAuthSession()) {
         if (!wasAllowed) setSquads([]);
         setAccessStatus('needAuth');

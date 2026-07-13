@@ -414,6 +414,15 @@ const syncUserNicknameInSquads = (data, userOpenid, nextNickname) => {
   });
 };
 
+const getNicknameFromSquads = (data, userOpenid) => {
+  for (const squad of data.squads) {
+    const passenger = squad.passengers.find((item) => item.openid === userOpenid && item.nickname && item.nickname !== '未命名成员');
+    if (passenger) return passenger.nickname;
+    if (squad.creatorOpenid === userOpenid && squad.creatorName && squad.creatorName !== '未命名成员') return squad.creatorName;
+  }
+  return '';
+};
+
 const hasSubscription = (data, userOpenid, templateId) => {
   const user = data.users.find((item) => item.openid === userOpenid);
   return Array.isArray(user?.subscribedTemplateIds) && user.subscribedTemplateIds.includes(templateId);
@@ -475,6 +484,9 @@ const loginResponse = async (userOpenid, userNickname, sessionKey) => withWriteL
   if (userNickname && userNickname !== '未命名成员') {
     user.nickname = userNickname;
     syncUserNicknameInSquads(data, user.openid, userNickname);
+  } else if (!user.nickname || user.nickname === '未命名成员') {
+    const recoveredNickname = getNicknameFromSquads(data, user.openid);
+    if (recoveredNickname) user.nickname = recoveredNickname;
   }
   delete user.sessionKey;
   if (sessionKey) sessionKeyCache.set(user.openid, { sessionKey, expiresAt: Date.now() + TOKEN_TTL });

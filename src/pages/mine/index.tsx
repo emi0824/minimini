@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useShareAppMessage } from '@tarojs/taro';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
-import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession, restoreWechatSession } from '@/services/auth';
+import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { getSquadsApi, resetSquadsApi, updateNicknameApi } from '@/services/squadApi';
 import { requestAllSquadSubscribes, SUBSCRIBE_TEMPLATE_IDS } from '@/services/subscription';
 import {
@@ -76,24 +76,19 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
   useEffect(() => {
     if (!active) return;
 
-    const syncSession = async () => {
-      if (!hasAuthSession()) await restoreWechatSession();
-      const hasSession = hasAuthSession();
-      setIsAuthorized(hasSession);
+    const hasSession = hasAuthSession();
+    setIsAuthorized(hasSession);
 
-      if (!hasSession) {
-        setAccessState(undefined);
-        return;
-      }
+    if (!hasSession) {
+      setAccessState(undefined);
+      return;
+    }
 
-      const cachedUser = getCurrentUser();
-      setCurrentUser(cachedUser);
-      setNickname(cachedUser.nickname === '未命名成员' ? '' : cachedUser.nickname);
-      setAccessState(getCachedAccessState());
-      refreshAccessState();
-    };
-
-    syncSession();
+    const cachedUser = getCurrentUser();
+    setCurrentUser(cachedUser);
+    setNickname(cachedUser.nickname === '未命名成员' ? '' : cachedUser.nickname);
+    setAccessState(getCachedAccessState());
+    refreshAccessState();
   }, [active, version]);
 
   const joined = squads.filter((item) => Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid));
