@@ -22,9 +22,10 @@ import styles from './index.module.scss';
 
 interface MinePageProps {
   active?: boolean;
+  refreshSignal?: number;
 }
 
-const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
+const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 }) => {
   const { version, refresh } = useFocusRefresh();
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => getCurrentUser());
   const [nickname, setNickname] = useState(currentUser.nickname === '未命名成员' ? '' : currentUser.nickname);
@@ -89,7 +90,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
     setNickname(cachedUser.nickname === '未命名成员' ? '' : cachedUser.nickname);
     setAccessState(getCachedAccessState());
     refreshAccessState();
-  }, [active, version]);
+  }, [active, version, refreshSignal]);
 
   const joined = squads.filter((item) => Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid));
   const created = squads.filter((item) => Boolean(item.isCreator) || item.creatorOpenid === currentUser.openid);
@@ -123,7 +124,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
       : '消息提醒：未开启';
   const messageButtonText = messageEnabled ? '重新授权消息提醒' : messagePartiallyEnabled ? '继续授权消息提醒' : '授权消息提醒';
   const authenticatedUser = accessState?.user || currentUser;
-  const manageableUsers = adminUsers.filter((user) => user.openid !== authenticatedUser.openid);
+  const manageableUsers = adminUsers.filter((user) => user.openid !== authenticatedUser.openid && user.nickname !== '未命名成员');
   const canManageAdminRole = accessState?.isRootAdmin === true;
 
   const openDetail = (id: number) => {
@@ -315,9 +316,9 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
               </View>
               <View className={styles.rowActions}>
                 {canManageAdminRole && user.openid !== authenticatedUser.openid && (user.role === 'admin'
-                  ? <View className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</View>
-                  : <View className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</View>)}
-                <View className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</View>
+                  ? <Button className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</Button>
+                  : <Button className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</Button>)}
+                <Button className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Button>
               </View>
             </View>
           ))}

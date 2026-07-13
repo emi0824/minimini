@@ -130,6 +130,7 @@
 
 .commandPanel {
   display: flex;
+  flex-wrap: wrap;
   gap: 16rpx;
   margin-top: 28rpx;
 }

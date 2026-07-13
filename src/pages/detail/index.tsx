@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, Input, Textarea } from '@tarojs/components';
-import Taro, { useRouter } from '@tarojs/taro';
+import Taro, { usePullDownRefresh, useRouter } from '@tarojs/taro';
 import StatusPill from '@/components/StatusPill';
 import { getCurrentUser } from '@/services/auth';
 import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi } from '@/services/squadApi';
@@ -20,14 +20,26 @@ const DetailPage: React.FC = () => {
   const [role, setRole] = useState('补位');
   const [note, setNote] = useState('');
 
+  const loadSquad = async () => {
+    try {
+      setSquad(await getSquadByIdApi(squadId));
+    } catch (error) {
+      console.error('[Detail] load squad failed', error);
+      Taro.showToast({ title: '车队加载失败', icon: 'none' });
+    }
+  };
+
   useEffect(() => {
-    getSquadByIdApi(squadId)
-      .then(setSquad)
-      .catch((error) => {
-        console.error('[Detail] load squad failed', error);
-        Taro.showToast({ title: '车队加载失败', icon: 'none' });
-      });
+    loadSquad();
   }, [squadId, version]);
+
+  usePullDownRefresh(async () => {
+    try {
+      await loadSquad();
+    } finally {
+      Taro.stopPullDownRefresh();
+    }
+  });
 
   if (!squad) {
     return (

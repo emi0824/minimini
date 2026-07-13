@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button } from '@tarojs/components';
-import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro';
+import Taro, { usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
 import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
@@ -20,6 +20,7 @@ type HomeTab = 'lobby' | 'mine';
 const IndexPage: React.FC = () => {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<HomeTab>(() => (router.params.tab === 'mine' ? 'mine' : 'lobby'));
+  const [mineRefreshSignal, setMineRefreshSignal] = useState(0);
   const { version } = useFocusRefresh();
   const [squads, setSquads] = useState<Squad[]>([]);
   const [accessStatus, setAccessStatus] = useState<AccessViewStatus>(() => {
@@ -106,6 +107,25 @@ const IndexPage: React.FC = () => {
     checkAccessAndLoad();
   }, [version]);
 
+  const handleRefresh = async () => {
+    if (activeTab === 'mine') {
+      setMineRefreshSignal((value) => value + 1);
+      Taro.showToast({ title: '已刷新', icon: 'success' });
+      return;
+    }
+
+    await checkAccessAndLoad();
+    Taro.showToast({ title: '已刷新', icon: 'success' });
+  };
+
+  usePullDownRefresh(async () => {
+    try {
+      await handleRefresh();
+    } finally {
+      Taro.stopPullDownRefresh();
+    }
+  });
+
   const totalPassengers = squads.reduce((sum, item) => sum + item.passengers.length, 0);
   const nextSquad = squads[0];
   const canUseLobby = accessStatus === 'allowed';
@@ -181,6 +201,7 @@ const IndexPage: React.FC = () => {
           <View className={styles.commandPanel}>
             <Button className={styles.primaryAction} onClick={handleCreate}>创建车队</Button>
             <Button className={styles.secondaryAction} onClick={handleCopy}>复制战报</Button>
+            <Button className={styles.secondaryAction} onClick={handleRefresh}>刷新</Button>
           </View>
 
           <View className={styles.sectionHeader}>
@@ -213,7 +234,7 @@ const IndexPage: React.FC = () => {
       </View>
 
       <View className={activeTab === 'mine' ? styles.tabPaneActive : styles.tabPaneHidden}>
-        <MinePage active={activeTab === 'mine'} />
+        <MinePage active={activeTab === 'mine'} refreshSignal={mineRefreshSignal} />
       </View>
 
       <View className={styles.customTabBar}>

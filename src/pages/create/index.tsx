@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Input, Textarea, Button, Picker } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { usePullDownRefresh } from '@tarojs/taro';
 import { getCurrentUser } from '@/services/auth';
 import { createSquadApi } from '@/services/squadApi';
 import { requestSquadMemberChangeSubscribe } from '@/services/subscription';
@@ -29,6 +29,10 @@ const CreatePage: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>(['接受分差']);
   const [note, setNote] = useState('缺辅助，语音开黑，别鸽。');
   const timePickerValue = useMemo(() => getTimePickerValue(departTime), [departTime]);
+
+  usePullDownRefresh(() => {
+    Taro.stopPullDownRefresh();
+  });
 
   const toggleTag = (tag: string) => {
     setSelectedTags((items) => (

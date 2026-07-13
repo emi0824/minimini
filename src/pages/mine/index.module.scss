@@ -159,14 +159,20 @@
 }
 
 .rowAction {
+  @include button-reset;
   min-width: 128rpx;
-  padding: 10rpx 0 10rpx 20rpx;
+  height: 52rpx;
+  padding: 0 0 0 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   color: $color-primary;
   font-size: 24rpx;
   font-weight: $font-weight-bold;
   line-height: 1.4;
   text-align: right;
   white-space: nowrap;
+  background: transparent;
 }
 
 .guideSteps {
