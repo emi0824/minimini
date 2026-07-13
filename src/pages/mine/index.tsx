@@ -169,38 +169,35 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
     }
   };
 
-  const handlePromoteUser = async (user: UserProfile) => {
-    const result = await Taro.showModal({
-      title: '设置管理员',
-      content: `确认将 ${user.nickname} 设置为管理员？设置后该成员可管理成员权限和绑定准入微信群。`,
-      confirmText: '设为管理员'
+  const handleRoleAction = (user: UserProfile) => {
+    const isDemote = user.role === 'admin';
+    console.info('[Mine] role action tap', { openid: user.openid, nickname: user.nickname, isDemote });
+    Taro.showModal({
+      title: isDemote ? '取消管理员' : '设置管理员',
+      content: isDemote
+        ? `确认取消 ${user.nickname} 的管理员身份？取消后该成员将按普通成员准入规则使用。`
+        : `确认将 ${user.nickname} 设置为管理员？设置后该成员可管理成员权限和绑定准入微信群。`,
+      confirmText: isDemote ? '取消' : '设置',
+      success: async (res) => {
+        console.info('[Mine] role modal success', res);
+        if (!res.confirm) return;
+        try {
+          if (isDemote) {
+            await demoteAdminUser(user.openid);
+          } else {
+            await promoteUserToAdmin(user.openid);
+          }
+          setAdminUsers(await getAdminUsers());
+          Taro.showToast({ title: isDemote ? '已取消管理员' : '已设为管理员', icon: 'success' });
+        } catch (error) {
+          Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
+        }
+      },
+      fail: (error) => {
+        console.error('[Mine] role modal failed', error);
+        Taro.showToast({ title: '弹窗打开失败', icon: 'none' });
+      }
     });
-    if (!result.confirm) return;
-
-    try {
-      await promoteUserToAdmin(user.openid);
-      setAdminUsers(await getAdminUsers());
-      Taro.showToast({ title: '已设为管理员', icon: 'success' });
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
-    }
-  };
-
-  const handleDemoteUser = async (user: UserProfile) => {
-    const result = await Taro.showModal({
-      title: '取消管理员',
-      content: `确认取消 ${user.nickname} 的管理员身份？取消后该成员将按普通成员准入规则使用。`,
-      confirmText: '取消管理员'
-    });
-    if (!result.confirm) return;
-
-    try {
-      await demoteAdminUser(user.openid);
-      setAdminUsers(await getAdminUsers());
-      Taro.showToast({ title: '已取消管理员', icon: 'success' });
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' });
-    }
   };
 
   const handleToggleUser = (user: UserProfile) => {
@@ -311,9 +308,9 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
                 <Text className={styles.rowMeta}>{user.disabled ? `已禁用 · ${user.disabledReason || '无原因'}` : '可使用'}</Text>
               </View>
               <View className={styles.rowActions}>
-                {canManageAdminRole && user.openid !== authenticatedUser.openid && (user.role === 'admin'
-                  ? <Button className={styles.rowAction} onClick={() => handleDemoteUser(user)}>取消管理员</Button>
-                  : <Button className={styles.rowAction} onClick={() => handlePromoteUser(user)}>设为管理员</Button>)}
+                {canManageAdminRole && user.openid !== authenticatedUser.openid && (
+                  <Button className={styles.rowAction} onClick={() => handleRoleAction(user)}>{user.role === 'admin' ? '取消管理员' : '设为管理员'}</Button>
+                )}
                 <Button className={styles.rowAction} onClick={() => handleToggleUser(user)}>{user.disabled ? '恢复' : '禁用'}</Button>
               </View>
             </View>
