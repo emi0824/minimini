@@ -245,7 +245,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true }) => {
   useShareAppMessage(() => ({
     title: '港瓦夕阳红车队集合',
     path: '/pages/index/index',
-    imageUrl: 'https://raw.githubusercontent.com/emi0824/minimini/main/src/assets/share-card.jpg'
+    imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
   }));
 
   const handleReset = () => {

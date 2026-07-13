@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const PORT = Number(process.env.PORT || 3000);
 const PROXY_TARGET = process.env.PROXY_TARGET;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const PUBLIC_DIR = path.join(__dirname, 'public');
 const ENV_FILE = '/etc/gangwa/gangwa.env';
 const MAX_BODY_SIZE = 16 * 1024;
 const TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
@@ -337,6 +338,26 @@ const send = (res, status, payload) => {
 const ok = (res, data) => send(res, 200, { ok: true, data });
 const fail = (res, status, message) => send(res, status, { ok: false, message });
 
+const serveStaticAsset = (req, res, pathname) => {
+  const relativePath = decodeURIComponent(pathname.replace(/^\/assets\//, 'assets/'));
+  const filePath = path.join(PUBLIC_DIR, relativePath);
+  if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath)) return false;
+
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.png' ? 'image/png' : 'application/octet-stream';
+  res.writeHead(200, {
+    'content-type': contentType,
+    'content-length': fs.statSync(filePath).size,
+    'cache-control': 'public, max-age=31536000, immutable'
+  });
+  if (req.method === 'HEAD') {
+    res.end();
+    return true;
+  }
+  fs.createReadStream(filePath).pipe(res);
+  return true;
+};
+
 const parseBody = (req) => new Promise((resolve, reject) => {
   let body = '';
   req.on('data', (chunk) => {
@@ -501,6 +522,8 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/assets/') && serveStaticAsset(req, res, pathname)) return;
 
   try {
     if (req.method === 'GET' && pathname === '/api/health') {
