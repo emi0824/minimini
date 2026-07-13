@@ -53,6 +53,11 @@ export const refreshWechatSession = async (nickname?: string): Promise<UserProfi
   return loginWithWechat(nickname?.trim() || cached.nickname || '未命名成员');
 };
 
+export const restoreWechatSession = async (): Promise<UserProfile | undefined> => {
+  if (getAuthToken() || Taro.getEnv() === Taro.ENV_TYPE.WEB) return undefined;
+  return loginWithWechat('未命名成员');
+};
+
 export const bindWechatUserWithNickname = async (nickname: string): Promise<UserProfile> => {
   if (Taro.getEnv() === Taro.ENV_TYPE.WEB) throw new Error('H5 预览不开放写操作，请使用小程序预览');
   return loginWithWechat(nickname.trim());
