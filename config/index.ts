@@ -5,8 +5,6 @@ import prodConfig from './prod';
 import vitePluginImp from 'vite-plugin-imp';
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
-  const outputRoot = process.env.TARO_OUTPUT_DIR || 'dist';
-
   const baseConfig: UserConfigExport<'webpack5'> = {
     projectName: 'gangwa-miniapp',
     date: '2025-12-10',
@@ -18,13 +16,11 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       828: 1.81 / 2,
     },
     sourceRoot: 'src',
-    outputRoot,
+    outputRoot: process.env.TARO_OUTPUT_DIR || 'dist',
     plugins: ['@tarojs/plugin-html'],
     defineConstants: {},
     copy: {
-      patterns: [
-        { from: 'src/assets', to: `${outputRoot}/assets` }
-      ],
+      patterns: [],
       options: {},
     },
     framework: 'react',
