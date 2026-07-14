@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.swc/
 .pai/
 .auth/
 .DS_Store
