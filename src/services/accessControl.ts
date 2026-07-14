@@ -13,13 +13,74 @@ export interface AccessState {
   message: string;
 }
 
+export interface GroupBindingState {
+  isBound: boolean;
+  allowedGroupOpenGid: string;
+  boundAt: number;
+  boundBy: string;
+}
+
 const isWeb = () => Taro.getEnv() === Taro.ENV_TYPE.WEB;
 const SHARE_TICKET_KEY = 'gangwa_latest_share_ticket';
+const SHARE_TICKET_TTL = 5 * 60 * 1000;
 
-const getCurrentShareTicket = () => {
+interface ShareTicketCache {
+  ticket: string;
+  cachedAt: number;
+}
+
+const saveShareTicket = (ticket: string) => {
+  Taro.setStorageSync(SHARE_TICKET_KEY, { ticket, cachedAt: Date.now() });
+};
+
+const getCachedShareTicket = () => {
+  const cached = Taro.getStorageSync<ShareTicketCache>(SHARE_TICKET_KEY);
+  if (!cached?.ticket || Date.now() - Number(cached.cachedAt || 0) > SHARE_TICKET_TTL) {
+    Taro.removeStorageSync(SHARE_TICKET_KEY);
+    return '';
+  }
+  return cached.ticket;
+};
+
+export const clearCachedShareTicket = () => {
+  Taro.removeStorageSync(SHARE_TICKET_KEY);
+};
+
+export const cacheCurrentShareTicket = (ticket?: string) => {
   const enterOptions = Taro.getEnterOptionsSync?.();
   const launchOptions = Taro.getLaunchOptionsSync?.();
-  return enterOptions?.shareTicket || launchOptions?.shareTicket || Taro.getStorageSync<string>(SHARE_TICKET_KEY) || '';
+  const routeParams = Taro.getCurrentInstance?.().router?.params;
+  const shareTicket = ticket || routeParams?.shareTicket || enterOptions?.shareTicket || launchOptions?.shareTicket || '';
+  if (shareTicket) saveShareTicket(shareTicket);
+  return shareTicket;
+};
+
+const getCurrentShareTicket = (ticket?: string) => cacheCurrentShareTicket(ticket) || getCachedShareTicket();
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const message = error instanceof Error && error.message
+    ? error.message
+    : error && typeof error === 'object' && 'errMsg' in error && typeof error.errMsg === 'string'
+      ? error.errMsg
+      : '';
+  if (message.includes('invalid shareTicket')) return '微信群凭证已失效，请回到绑定微信群，重新点击最新的小程序卡片进入';
+  return message || fallback;
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, message: string, timeout = 8000): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeout);
+      })
+    ]);
+  } catch (error) {
+    throw new Error(getErrorMessage(error, message));
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 };
 
 export const getMe = async () => {
@@ -63,31 +124,40 @@ export const ensureAuthorizedOrRedirect = async () => {
 
   try {
     const state = await getAccessState();
-    if (state.isDisabled || state.needsGroupVerify) {
+    if (state.isDisabled) {
       Taro.showToast({ title: state.message, icon: 'none' });
       setTimeout(() => Taro.redirectTo({ url: '/pages/index/index?tab=mine' }), 350);
       return false;
     }
+    if (state.needsGroupVerify) {
+      await verifyWechatGroupAccess();
+    }
     return true;
   } catch (error) {
-    Taro.showToast({ title: '授权已失效，请重新授权', icon: 'none' });
+    Taro.showToast({ title: error instanceof Error ? error.message : '授权已失效，请重新授权', icon: 'none' });
     setTimeout(() => Taro.redirectTo({ url: '/pages/index/index?tab=mine' }), 350);
     return false;
   }
 };
 
-export const verifyWechatGroupAccess = async () => {
+export const verifyWechatGroupAccess = async (ticket?: string) => {
   await refreshWechatSession();
   if (isWeb()) throw new Error('H5 预览无法完成微信群验证，请使用微信小程序从群卡片进入');
 
-  const shareTicket = getCurrentShareTicket();
-  if (!shareTicket) throw new Error('请从指定微信群的小程序卡片进入后再验证');
+  const shareTicket = getCurrentShareTicket(ticket);
+  if (!shareTicket) throw new Error('未获取到微信群凭证，请回到绑定微信群，重新点击最新的小程序卡片进入');
 
-  const shareInfo = await Taro.getShareInfo({ shareTicket });
-  const result = await request<{ user: UserProfile; groupOpenGid: string }>('/api/users/me/group-verify', 'POST', {
+  let shareInfo: { encryptedData: string; iv: string };
+  try {
+    shareInfo = await withTimeout(Taro.getShareInfo({ shareTicket }) as Promise<{ encryptedData: string; iv: string }>, '微信群信息获取超时，请重新从群卡片进入');
+  } catch (error) {
+    clearCachedShareTicket();
+    throw error;
+  }
+  const result = await withTimeout(request<{ user: UserProfile; groupOpenGid: string }>('/api/users/me/group-verify', 'POST', {
     encryptedData: shareInfo.encryptedData,
     iv: shareInfo.iv
-  });
+  }), '微信群验证超时，请重试');
   saveUserProfile(result.user);
   return result;
 };
@@ -100,13 +170,17 @@ export const bindWechatGroup = async () => {
   if (!shareTicket) throw new Error('请管理员从目标微信群的小程序卡片进入后再绑定');
 
   const shareInfo = await Taro.getShareInfo({ shareTicket });
-  const result = await request<{ allowedGroupOpenGid: string; boundBy: string }>('/api/admin/group/bind', 'POST', {
+  const result = await request<GroupBindingState>('/api/admin/group/bind', 'POST', {
     encryptedData: shareInfo.encryptedData,
     iv: shareInfo.iv
   });
   Taro.removeStorageSync(SHARE_TICKET_KEY);
   return result;
 };
+
+export const getGroupBindingState = () => request<GroupBindingState>('/api/admin/group/binding');
+
+export const unbindWechatGroup = () => request<GroupBindingState>('/api/admin/group/unbind', 'POST');
 
 export const getAdminUsers = () => request<UserProfile[]>('/api/admin/users');
 

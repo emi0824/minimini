@@ -11,7 +11,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const ENV_FILE = '/etc/gangwa/gangwa.env';
 const MAX_BODY_SIZE = 16 * 1024;
 const TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
-const GROUP_VERIFY_TTL = 30 * 24 * 60 * 60 * 1000;
+const GROUP_VERIFY_TTL = 180 * 24 * 60 * 60 * 1000;
+const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
 const SUBSCRIBE_TEMPLATE_IDS = {
   squadMemberChanged: 'lsmPbz6F-1use0Ej3i5rFucq75PZhWNhJKb2AQdxES0',
   squadStatusChanged: 'm_8t4Gz308eRqgkBF0u1voEpiFkFbgsavi2skoL_FDg'
@@ -273,6 +274,12 @@ const text = (value, field, maxLength, { required = true } = {}) => {
 };
 
 const nickname = (value) => text(value || '未命名成员', '昵称', 20);
+const getBeijingDate = () => new Date(Date.now() + BEIJING_OFFSET).toISOString().slice(0, 10);
+const departDate = (value) => {
+  const next = text(value || getBeijingDate(), '发车日期', 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) throw new Error('发车日期格式应为 YYYY-MM-DD');
+  return next;
+};
 const departTime = (value) => {
   const next = text(value, '发车时间', 8);
   if (/^([01]\d|2[0-3]):[0-5]\d$/.test(next)) return `${next}:00`;
@@ -297,6 +304,7 @@ const normalizeSquad = (squad) => {
     ...squad,
     passengers,
     tags: squadTags,
+    departDate: squad.departDate || getBeijingDate(),
     capacity: squadCapacity,
     status: passengers.length >= squadCapacity ? 'ready' : 'recruiting'
   };
@@ -393,6 +401,29 @@ const getOrCreateUser = (data, userOpenid, userNickname = '未命名成员') => 
 
 const findSquad = (data, squadId) => data.squads.find((item) => item.id === squadId);
 const getAllowedGroupOpenGid = (data) => process.env.ALLOWED_GROUP_OPEN_GID || data.settings?.allowedGroupOpenGid || '';
+const clearGroupAccessData = (data) => {
+  delete data.settings.allowedGroupOpenGid;
+  delete data.settings.allowedGroupBoundAt;
+  delete data.settings.allowedGroupBoundBy;
+  data.squads = [];
+  data.users = data.users.filter((user) => isAdmin(user)).map((user) => {
+    const { groupOpenGid, groupVerified, groupVerifiedAt, subscribedTemplateIds, ...rest } = user;
+    return {
+      ...rest,
+      joinedSquadIds: [],
+      createdSquadIds: []
+    };
+  });
+};
+const getGroupBindingState = (data) => {
+  const allowedGroupOpenGid = getAllowedGroupOpenGid(data);
+  return {
+    isBound: Boolean(allowedGroupOpenGid),
+    allowedGroupOpenGid,
+    boundAt: data.settings?.allowedGroupBoundAt || 0,
+    boundBy: data.settings?.allowedGroupBoundBy || ''
+  };
+};
 const isAdmin = (userOrOpenid) => {
   if (typeof userOrOpenid === 'string') return adminOpenids.has(userOrOpenid);
   return adminOpenids.has(userOrOpenid.openid) || userOrOpenid.role === 'admin';
@@ -480,10 +511,8 @@ const notifyMemberChanged = (dataSnapshot, squad, operatorNickname, actionText) 
   templateId: SUBSCRIBE_TEMPLATE_IDS.squadMemberChanged,
   page: `/pages/detail/index?id=${squad.id}`,
   data: {
-    thing1: { value: `${operatorNickname}${actionText}`.slice(0, 20) },
-    thing2: { value: squad.title.slice(0, 20) },
-    time3: { value: publicDepartTime(squad.departTime) },
-    thing4: { value: `${squad.passengers.length}/${squad.capacity}`.slice(0, 20) }
+    thing78: { value: `${squad.passengers.length}/${squad.capacity}`.slice(0, 20) },
+    thing63: { value: `${operatorNickname}${actionText}`.slice(0, 20) }
   }
 });
 
@@ -493,10 +522,8 @@ const notifyStatusChanged = (dataSnapshot, userOpenid, squad, thing) => sendSubs
   templateId: SUBSCRIBE_TEMPLATE_IDS.squadStatusChanged,
   page: `/pages/detail/index?id=${squad.id}`,
   data: {
-    thing1: { value: squad.title.slice(0, 20) },
-    thing2: { value: thing.slice(0, 20) },
-    time3: { value: publicDepartTime(squad.departTime) },
-    thing4: { value: '请查看车队详情' }
+    phrase21: { value: thing.slice(0, 20) },
+    thing1: { value: squad.title.slice(0, 20) }
   }
 });
 
@@ -647,11 +674,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/admin/group/binding' && req.method === 'GET') {
+      const data = readData();
+      requireAdmin(req, data);
+      ok(res, getGroupBindingState(data));
+      return;
+    }
+
     if (pathname === '/api/admin/group/bind' && req.method === 'POST') {
       checkRateLimit(req, 'admin-write', 60, 60 * 1000);
       const body = await parseBody(req);
       const result = await withWriteLock((data) => {
         const admin = requireAdmin(req, data);
+        if (getAllowedGroupOpenGid(data)) throw Object.assign(new Error('已绑定准入微信群，请先解绑后再绑定'), { status: 400 });
         const session = sessionKeyCache.get(admin.openid);
         if (!session || Date.now() > session.expiresAt) throw Object.assign(new Error('请重新登录后绑定微信群'), { status: 400 });
         const groupOpenGid = decryptWechatData(session.sessionKey, text(body.encryptedData, '群加密数据', 4096), text(body.iv, '群加密向量', 256));
@@ -661,7 +696,18 @@ const server = http.createServer(async (req, res) => {
         admin.groupOpenGid = groupOpenGid;
         admin.groupVerified = true;
         admin.groupVerifiedAt = Date.now();
-        return { allowedGroupOpenGid: groupOpenGid, boundBy: admin.openid };
+        return getGroupBindingState(data);
+      });
+      ok(res, result);
+      return;
+    }
+
+    if (pathname === '/api/admin/group/unbind' && req.method === 'POST') {
+      checkRateLimit(req, 'admin-write', 60, 60 * 1000);
+      const result = await withWriteLock((data) => {
+        requireAdmin(req, data);
+        clearGroupAccessData(data);
+        return getGroupBindingState(data);
       });
       ok(res, result);
       return;
@@ -678,6 +724,7 @@ const server = http.createServer(async (req, res) => {
       checkRateLimit(req, 'write', 30, 60 * 1000);
       const body = await parseBody(req);
       const squadTitle = text(body.title, '车队名称', 30);
+      const squadDepartDate = departDate(body.departDate);
       const squadDepartTime = departTime(body.departTime);
       const squadCapacity = capacity(body.capacity || 5);
       const squadNote = text(body.note || '无备注', '备注', 120, { required: false }) || '无备注';
@@ -691,6 +738,7 @@ const server = http.createServer(async (req, res) => {
           code: '自定义车队',
           creatorOpenid: user.openid,
           creatorName: user.nickname,
+          departDate: squadDepartDate,
           departTime: squadDepartTime,
           capacity: squadCapacity,
           note: squadNote,

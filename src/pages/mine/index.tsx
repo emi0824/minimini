@@ -1,20 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
-import Taro, { useShareAppMessage } from '@tarojs/taro';
+import Taro, { useLoad, useShareAppMessage } from '@tarojs/taro';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { getSquadsApi, resetSquadsApi, updateNicknameApi } from '@/services/squadApi';
 import { requestAllSquadSubscribes, SUBSCRIBE_TEMPLATE_IDS } from '@/services/subscription';
 import {
   AccessState,
+  GroupBindingState,
   bindWechatGroup,
+  cacheCurrentShareTicket,
   demoteAdminUser,
   disableUser,
   enableUser,
   getAccessState,
   getAdminUsers,
   getCachedAccessState,
+  getGroupBindingState,
   promoteUserToAdmin,
+  unbindWechatGroup,
   verifyWechatGroupAccess
 } from '@/services/accessControl';
 import { Squad, UserProfile } from '@/types/squad';
@@ -33,7 +37,13 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
   const [isAuthorized, setIsAuthorized] = useState(() => hasAuthSession());
   const [accessState, setAccessState] = useState<AccessState | undefined>(() => (hasAuthSession() ? getCachedAccessState() : undefined));
   const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
+  const [groupBinding, setGroupBinding] = useState<GroupBindingState | undefined>();
   const refreshSeqRef = useRef(0);
+
+  useLoad((options) => {
+    Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
+    cacheCurrentShareTicket(String(options?.shareTicket || ''));
+  });
 
   const refreshAccessState = async () => {
     const refreshSeq = refreshSeqRef.current + 1;
@@ -64,8 +74,13 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
         setSquads([]);
       }
       if (state.isAdmin) {
-        const nextAdminUsers = await getAdminUsers();
-        if (isLatestRefresh()) setAdminUsers(nextAdminUsers);
+        const [nextAdminUsers, nextGroupBinding] = await Promise.all([getAdminUsers(), getGroupBindingState()]);
+        if (isLatestRefresh()) {
+          setAdminUsers(nextAdminUsers);
+          setGroupBinding(nextGroupBinding);
+        }
+      } else {
+        setGroupBinding(undefined);
       }
     } catch (error) {
       console.info('[Mine] access state skipped', error);
@@ -161,12 +176,32 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
 
   const handleBindGroup = async () => {
     try {
-      await bindWechatGroup();
+      const nextGroupBinding = await bindWechatGroup();
+      setGroupBinding(nextGroupBinding);
       await refreshAccessState();
       Taro.showToast({ title: '目标微信群已绑定', icon: 'success' });
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '绑定失败', icon: 'none' });
     }
+  };
+
+  const handleUnbindGroup = () => {
+    Taro.showModal({
+      title: '解绑准入微信群',
+      content: '解绑会清除当前绑定群、全部车队、普通成员账号和所有群验证数据，仅保留管理员账号。确认解绑？',
+      confirmText: '确认解绑',
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          const nextGroupBinding = await unbindWechatGroup();
+          setGroupBinding(nextGroupBinding);
+          await refreshAccessState();
+          Taro.showToast({ title: '已解绑微信群', icon: 'success' });
+        } catch (error) {
+          Taro.showToast({ title: error instanceof Error ? error.message : '解绑失败', icon: 'none' });
+        }
+      }
+    });
   };
 
   const handleRoleAction = (user: UserProfile) => {
@@ -285,15 +320,28 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
 
       {accessState?.isAdmin && (
         <View className={styles.section}>
-          <Text className={styles.sectionTitle}>准入微信群绑定</Text>
-          <Text className={styles.rowMeta}>扫码打开无法获取微信群 shareTicket。请先把小程序分享到目标微信群，再从群里的小程序卡片重新进入本页，最后点击绑定当前微信群。</Text>
-          <View className={styles.guideSteps}>
-            <Text className={styles.guideStep}>1. 点击分享到准入微信群</Text>
-            <Text className={styles.guideStep}>2. 从目标微信群卡片重新进入</Text>
-            <Text className={styles.guideStep}>3. 回到我的页点击绑定当前微信群</Text>
+          <View className={styles.messageHeader}>
+            <Text className={styles.sectionTitle}>准入微信群绑定</Text>
+            <Text className={groupBinding?.isBound ? styles.messageStatusOn : styles.messageStatusOff}>{groupBinding?.isBound ? '已绑定' : '未绑定'}</Text>
           </View>
-          <Button className={styles.editButton} openType='share'>分享到准入微信群</Button>
-          <Button className={styles.editButton} onClick={handleBindGroup}>绑定当前微信群</Button>
+          {groupBinding?.isBound ? (
+            <View>
+              <Text className={styles.rowMeta}>当前已有准入微信群。需要更换微信群时，请先解绑，解绑会清除全部车队和普通成员数据。</Text>
+              <Text className={styles.groupCode}>绑定标识：{groupBinding.allowedGroupOpenGid}</Text>
+              <Button className={styles.dangerButton} onClick={handleUnbindGroup}>解绑当前微信群</Button>
+            </View>
+          ) : (
+            <View>
+              <Text className={styles.rowMeta}>扫码打开无法获取微信群 shareTicket。请先把小程序分享到目标微信群，再从群里的小程序卡片重新进入本页，最后点击绑定当前微信群。</Text>
+              <View className={styles.guideSteps}>
+                <Text className={styles.guideStep}>1. 点击分享到准入微信群</Text>
+                <Text className={styles.guideStep}>2. 从目标微信群卡片重新进入</Text>
+                <Text className={styles.guideStep}>3. 回到我的页点击绑定当前微信群</Text>
+              </View>
+              <Button className={styles.editButton} openType='share'>分享到准入微信群</Button>
+              <Button className={styles.editButton} onClick={handleBindGroup}>绑定当前微信群</Button>
+            </View>
+          )}
         </View>
       )}
 

@@ -15,6 +15,7 @@ export interface Squad {
   code: string;
   creatorOpenid?: string;
   creatorName: string;
+  departDate?: string;
   departTime: string;
   capacity: number;
   note: string;

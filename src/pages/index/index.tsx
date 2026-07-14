@@ -1,17 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button } from '@tarojs/components';
-import Taro, { usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
+import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
 import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { getSquadsApi } from '@/services/squadApi';
 import { ensureAuthenticatedUser, hasAuthSession } from '@/services/auth';
-import { getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
+import { cacheCurrentShareTicket, getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
 
+type DateFilter = 'all' | 'today' | 'tomorrow';
+const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
+const getBeijingDate = (offsetDays = 0) => new Date(Date.now() + BEIJING_OFFSET + offsetDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 const sortSquadsByDepartTime = (items: Squad[]) => (
-  [...items].sort((left, right) => left.departTime.localeCompare(right.departTime))
+  [...items].sort((left, right) => `${left.departDate || ''} ${left.departTime}`.localeCompare(`${right.departDate || ''} ${right.departTime}`))
 );
 
 type AccessViewStatus = 'checking' | 'allowed' | 'needAuth' | 'needGroup' | 'disabled';
@@ -21,6 +25,8 @@ const IndexPage: React.FC = () => {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<HomeTab>(() => (router.params.tab === 'mine' ? 'mine' : 'lobby'));
   const [mineRefreshSignal, setMineRefreshSignal] = useState(0);
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [showAvailableOnly, setShowAvailableOnly] = useState(false);
   const { version } = useFocusRefresh();
   const [squads, setSquads] = useState<Squad[]>([]);
   const [accessStatus, setAccessStatus] = useState<AccessViewStatus>(() => {
@@ -44,6 +50,11 @@ const IndexPage: React.FC = () => {
   const accessStatusRef = useRef(accessStatus);
   const loadSeqRef = useRef(0);
 
+  useLoad((options) => {
+    Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
+    cacheCurrentShareTicket(String(options?.shareTicket || ''));
+  });
+
   useEffect(() => {
     accessStatusRef.current = accessStatus;
   }, [accessStatus]);
@@ -56,6 +67,7 @@ const IndexPage: React.FC = () => {
   };
 
   const checkAccessAndLoad = async () => {
+    cacheCurrentShareTicket();
     const loadSeq = loadSeqRef.current + 1;
     loadSeqRef.current = loadSeq;
     const isLatestLoad = () => loadSeqRef.current === loadSeq;
@@ -126,9 +138,16 @@ const IndexPage: React.FC = () => {
     }
   });
 
-  const totalPassengers = squads.reduce((sum, item) => sum + item.passengers.length, 0);
-  const nextSquad = squads[0];
   const canUseLobby = accessStatus === 'allowed';
+  const today = getBeijingDate();
+  const tomorrow = getBeijingDate(1);
+  const visibleSquads = squads.filter((item) => {
+    const matchesDate = dateFilter === 'all'
+      || (dateFilter === 'today' && item.departDate === today)
+      || (dateFilter === 'tomorrow' && item.departDate === tomorrow);
+    const matchesAvailable = !showAvailableOnly || (item.passengers.length < item.capacity && item.status !== 'ready');
+    return matchesDate && matchesAvailable;
+  });
   const accessTitle = accessStatus === 'checking'
     ? '正在验证访问权限'
     : accessStatus === 'disabled'
@@ -156,67 +175,51 @@ const IndexPage: React.FC = () => {
     Taro.navigateTo({ url: '/pages/create/index' });
   };
 
-  const handleCopy = () => {
-    if (!canUseLobby) {
-      Taro.showToast({ title: '请先完成授权或微信群验证', icon: 'none' });
-      return;
-    }
-
-    const content = squads.map((item, index) => {
-      const rest = Math.max(item.capacity - item.passengers.length, 0);
-      return `${index + 1}. ${item.departTime} ${item.title}\n发起人：${item.creatorName}\n人数：${item.passengers.length}/${item.capacity}${rest > 0 ? `，差 ${rest} 人` : '，已满员'}\n备注：${item.note}`;
-    }).join('\n\n');
-
-    Taro.setClipboardData({
-      data: `【港瓦夕阳红 · 今日车队】\n\n${content || '暂无车队'}`,
-      success: () => Taro.showToast({ title: '战报已复制', icon: 'success' })
-    });
-  };
-
   return (
     <View className={styles.page} data-version={version}>
       <View className={activeTab === 'lobby' ? styles.tabPaneActive : styles.tabPaneHidden}>
         <View className={styles.hero}>
           <View className={styles.heroGrid} />
           <Text className={styles.eyebrow}>今日车队调度</Text>
-          <Text className={styles.title}>港瓦夕阳红</Text>
-          <Text className={styles.subtitle}>好友活动时间协调</Text>
-          <View className={styles.statsRow}>
-            <View className={styles.statItem}>
+          <View className={styles.titleRow}>
+            <Text className={styles.title}>港瓦夕阳红</Text>
+            <View className={styles.heroStat}>
               <Text className={styles.statValue}>{canUseLobby ? squads.length : '--'}</Text>
-              <Text className={styles.statLabel}>车队</Text>
-            </View>
-            <View className={styles.statItem}>
-              <Text className={styles.statValue}>{canUseLobby ? totalPassengers : '--'}</Text>
-              <Text className={styles.statLabel}>待命</Text>
-            </View>
-            <View className={styles.statItem}>
-              <Text className={styles.statValue}>{canUseLobby ? nextSquad?.departTime || '--:--' : '--:--'}</Text>
-              <Text className={styles.statLabel}>下一班</Text>
+              <Text className={styles.statLabel}>已有车队</Text>
             </View>
           </View>
+          <Text className={styles.subtitle}>好友活动时间协调</Text>
         </View>
 
         <View className={canUseLobby ? styles.lobbyContent : styles.lobbyContentHidden}>
           <View className={styles.commandPanel}>
             <Button className={styles.primaryAction} onClick={handleCreate}>创建车队</Button>
-            <Button className={styles.secondaryAction} onClick={handleCopy}>复制战报</Button>
             <Button className={styles.secondaryAction} onClick={handleRefresh}>刷新</Button>
           </View>
 
-          <View className={styles.sectionHeader}>
-            <View>
-              <Text className={styles.sectionTitle}>今日集结</Text>
-              <Text className={styles.sectionDesc}>按发车时间排序，满员即准备开战</Text>
+          <View className={styles.filterPanel}>
+            <View className={styles.dateFilterGroup}>
+              <View className={dateFilter === 'all' ? styles.dateFilterActive : styles.dateFilter} onClick={() => setDateFilter('all')}>
+                <Text>全部</Text>
+              </View>
+              <View className={dateFilter === 'today' ? styles.dateFilterActive : styles.dateFilter} onClick={() => setDateFilter('today')}>
+                <Text>今日</Text>
+              </View>
+              <View className={dateFilter === 'tomorrow' ? styles.dateFilterActive : styles.dateFilter} onClick={() => setDateFilter('tomorrow')}>
+                <Text>明日</Text>
+              </View>
             </View>
-            <Text className={styles.liveBadge}>进行中</Text>
+            <View className={showAvailableOnly ? styles.filterButtonActive : styles.filterButton} onClick={() => setShowAvailableOnly((value) => !value)}>
+              <Text className={showAvailableOnly ? styles.filterCheckActive : styles.filterCheck}>{showAvailableOnly ? '✓' : ''}</Text>
+              <Text>未满员</Text>
+            </View>
           </View>
 
           <View className={styles.list}>
-            {squads.map((squad) => (
+            {visibleSquads.map((squad) => (
               <SquadCard squad={squad} key={squad.id} />
             ))}
-            {squads.length === 0 && <Text className={styles.sectionDesc}>暂无车队，快来创建第一辆。</Text>}
+            {visibleSquads.length === 0 && <Text className={styles.sectionDesc}>{squads.length === 0 ? '暂无车队，快来创建第一辆。' : '暂无未满员车队。'}</Text>}
           </View>
         </View>
 

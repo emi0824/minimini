@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input, Textarea } from '@tarojs/components';
-import Taro, { usePullDownRefresh, useRouter } from '@tarojs/taro';
+import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
 import StatusPill from '@/components/StatusPill';
-import { getCurrentUser } from '@/services/auth';
+import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi } from '@/services/squadApi';
 import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
-import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
+import { cacheCurrentShareTicket, ensureAuthorizedOrRedirect, getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
@@ -13,38 +13,91 @@ import styles from './index.module.scss';
 const DetailPage: React.FC = () => {
   const router = useRouter();
   const squadId = Number(router.params.id || 1);
+  const routeShareTicket = String(router.params.shareTicket || '');
   const [version, setVersion] = useState(0);
   const [squad, setSquad] = useState<Squad | undefined>();
+  const shareSquadRef = useRef<Squad | undefined>();
   const user = getCurrentUser();
   const [nickname, setNickname] = useState(user.nickname === '未命名成员' ? '' : user.nickname);
   const [role, setRole] = useState('补位');
   const [note, setNote] = useState('');
 
-  const loadSquad = async () => {
+  useLoad((options) => {
+    Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
+    cacheCurrentShareTicket(String(options?.shareTicket || ''));
+  });
+
+  const verifyAccessAndLoadSquad = async () => {
     try {
-      setSquad(await getSquadByIdApi(squadId));
+      cacheCurrentShareTicket(routeShareTicket);
+      if (!hasAuthSession()) {
+        Taro.showToast({ title: '请先授权微信身份', icon: 'none' });
+        return;
+      }
+
+      const state = await getAccessState();
+      if (state.isDisabled) {
+        Taro.showToast({ title: state.message, icon: 'none' });
+        return;
+      }
+      if (state.needsGroupVerify) await verifyWechatGroupAccess(routeShareTicket);
+
+      const nextSquad = await getSquadByIdApi(squadId);
+      shareSquadRef.current = nextSquad;
+      setSquad(nextSquad);
     } catch (error) {
       console.error('[Detail] load squad failed', error);
-      Taro.showToast({ title: '车队加载失败', icon: 'none' });
+      Taro.showToast({ title: error instanceof Error ? error.message : '车队加载失败', icon: 'none' });
     }
   };
 
   useEffect(() => {
-    loadSquad();
+    verifyAccessAndLoadSquad();
   }, [squadId, version]);
 
   usePullDownRefresh(async () => {
     try {
-      await loadSquad();
+      await verifyAccessAndLoadSquad();
     } finally {
       Taro.stopPullDownRefresh();
     }
   });
 
+  const handleAuthorizeAndLoad = async () => {
+    try {
+      cacheCurrentShareTicket(routeShareTicket);
+      await ensureAuthenticatedUser();
+      await verifyAccessAndLoadSquad();
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '授权失败', icon: 'none' });
+    }
+  };
+
+  useShareAppMessage((options) => {
+    const shareSquad = shareSquadRef.current || squad;
+    if (options.from === 'button') {
+      return {
+        title: shareSquad ? `${shareSquad.departTime} ${shareSquad.title}` : '港瓦夕阳红车队集合',
+        path: `/pages/detail/index?id=${shareSquad?.id || squadId}`,
+        imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+      };
+    }
+
+    return {
+      title: '港瓦夕阳红车队集合',
+      path: '/pages/index/index',
+      imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+    };
+  });
+
   if (!squad) {
     return (
       <View className={styles.page}>
-        <Text className={styles.title}>车队加载中</Text>
+        <View className={styles.headerCard}>
+          <Text className={styles.title}>车队加载中</Text>
+          <Text className={styles.meta}>如果你是从群里的车队卡片进入，请先授权微信身份，系统会自动完成微信群验证。</Text>
+          <Button className={styles.primaryButton} onClick={handleAuthorizeAndLoad}>授权并加载车队</Button>
+        </View>
       </View>
     );
   }
@@ -115,20 +168,17 @@ const DetailPage: React.FC = () => {
     });
   };
 
-  const handleCopy = () => {
-    Taro.setClipboardData({
-      data: `${squad.departTime} ${squad.title}\n发起人：${squad.creatorName}\n人数：${squad.passengers.length}/${squad.capacity}\n备注：${squad.note}`,
-      success: () => Taro.showToast({ title: '本车战报已复制', icon: 'success' })
-    });
-  };
-
   return (
     <View className={styles.page} data-version={version}>
       <View className={styles.headerCard}>
         <View className={styles.headerTop}>
           <View>
-            <Text className={styles.code}>{squad.code}</Text>
             <Text className={styles.title}>{squad.title}</Text>
+            <View className={styles.tagRow}>
+              {squad.tags.map((tag) => (
+                <Text className={styles.tag} key={tag}>{tag}</Text>
+              ))}
+            </View>
           </View>
           <StatusPill status={squad.status} />
         </View>
@@ -150,7 +200,7 @@ const DetailPage: React.FC = () => {
         </View>
       )}
 
-      <View className={styles.sectionTitle}>乘员名单</View>
+      <View className={styles.sectionTitle}>成员名单</View>
       <View className={styles.crewCard}>
         {Array.from({ length: squad.capacity }).map((_, index) => {
           const passenger = squad.passengers[index];
@@ -169,7 +219,7 @@ const DetailPage: React.FC = () => {
 
       <View className={styles.actionStack}>
         {!isJoined && squad.status !== 'ready' && <Button className={styles.primaryButton} onClick={handleJoin}>加入车队</Button>}
-        <Button className={styles.secondaryButton} onClick={handleCopy}>复制本车战报</Button>
+        <Button className={styles.secondaryButton} openType='share'>分享车队</Button>
         {isJoined && !isCreator && <Button className={styles.dangerButton} onClick={handleLeave}>退出我的座位</Button>}
         {isCreator && <Button className={styles.dangerGhostButton} onClick={handleDismiss}>解散车队</Button>}
       </View>

@@ -1,15 +1,23 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Input, Textarea, Button, Picker } from '@tarojs/components';
-import Taro, { usePullDownRefresh } from '@tarojs/taro';
-import { getCurrentUser } from '@/services/auth';
+import Taro, { useLoad, usePullDownRefresh } from '@tarojs/taro';
+import { getCurrentUser, hasAuthSession } from '@/services/auth';
 import { createSquadApi } from '@/services/squadApi';
 import { requestSquadMemberChangeSubscribe } from '@/services/subscription';
-import { ensureAuthorizedOrRedirect } from '@/services/accessControl';
+import { cacheCurrentShareTicket, ensureAuthorizedOrRedirect, getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import styles from './index.module.scss';
 
 const quickTags = ['接受分差', '不接受分差', '排位车', '匹配车', '晨练车', '破冰专属'];
 const quickTimes = ['20:00', '20:30', '21:00', '21:30', '22:00', '22:30'];
+const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
+
+const getBeijingDate = (offsetDays = 0) => {
+  const date = new Date(Date.now() + BEIJING_OFFSET + offsetDays * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+};
+
+const formatDateLabel = (date: string) => date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1年$2月$3日');
 const timeColumns = [
   Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0')),
   Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
@@ -23,16 +31,50 @@ const getTimePickerValue = (time: string) => {
 const CreatePage: React.FC = () => {
   const user = getCurrentUser();
   const nickname = user.nickname === '未命名成员' ? '' : user.nickname;
+  const [departDate, setDepartDate] = useState(() => getBeijingDate());
   const [departTime, setDepartTime] = useState('21:30');
   const [title, setTitle] = useState('排位复健车');
   const [capacity, setCapacity] = useState(5);
   const [selectedTags, setSelectedTags] = useState<string[]>(['接受分差']);
   const [note, setNote] = useState('缺辅助，语音开黑，别鸽。');
+  const [accessChecking, setAccessChecking] = useState(() => hasAuthSession());
+  const [accessMessage, setAccessMessage] = useState('正在检查微信群准入状态...');
   const timePickerValue = useMemo(() => getTimePickerValue(departTime), [departTime]);
+
+  useLoad((options) => {
+    Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
+    cacheCurrentShareTicket(String(options?.shareTicket || ''));
+  });
 
   usePullDownRefresh(() => {
     Taro.stopPullDownRefresh();
   });
+
+  useEffect(() => {
+    const verifyAccess = async () => {
+      cacheCurrentShareTicket();
+      if (!hasAuthSession()) {
+        setAccessChecking(false);
+        return;
+      }
+
+      try {
+        const state = await getAccessState();
+        if (state.isDisabled) {
+          setAccessMessage(state.message);
+          setAccessChecking(false);
+          return;
+        }
+        if (state.needsGroupVerify) await verifyWechatGroupAccess();
+        setAccessChecking(false);
+      } catch (error) {
+        setAccessMessage(error instanceof Error ? error.message : '请从准入微信群卡片进入完成验证');
+        setAccessChecking(false);
+      }
+    };
+
+    verifyAccess();
+  }, []);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((items) => (
@@ -51,8 +93,8 @@ const CreatePage: React.FC = () => {
       Taro.showToast({ title: '请先到我的页设置昵称', icon: 'none' });
       return;
     }
-    if (!departTime || !finalTitle) {
-      Taro.showToast({ title: '请填写发车时间和车队名称', icon: 'none' });
+    if (!departDate || !departTime || !finalTitle) {
+      Taro.showToast({ title: '请填写发车日期、时间和车队名称', icon: 'none' });
       return;
     }
 
@@ -62,6 +104,7 @@ const CreatePage: React.FC = () => {
       await requestSquadMemberChangeSubscribe();
       const squad = await createSquadApi({
         title: finalTitle,
+        departDate,
         departTime,
         capacity,
         note: note.trim() || '无备注',
@@ -92,9 +135,16 @@ const CreatePage: React.FC = () => {
         </View>
 
         <View className={styles.field}>
-          <Text className={styles.label}>发车时间</Text>
+          <Text className={styles.label}>发车日期（北京时间）</Text>
+          <Picker mode='date' value={departDate} start={getBeijingDate()} end={getBeijingDate(30)} onChange={(event) => setDepartDate(String(event.detail.value))}>
+            <View className={styles.timePicker}>{formatDateLabel(departDate)}</View>
+          </Picker>
+        </View>
+
+        <View className={styles.field}>
+          <Text className={styles.label}>发车时间（北京时间）</Text>
           <Picker mode='multiSelector' range={timeColumns} value={timePickerValue} onChange={(event) => handleTimeChange(event.detail.value as number[])}>
-            <View className={styles.timePicker}>{departTime}</View>
+            <View className={styles.timePicker}>{formatDateLabel(departDate)} {departTime}</View>
           </Picker>
           <View className={styles.quickTimeList}>
             {quickTimes.map((time) => (

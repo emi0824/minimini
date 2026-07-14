@@ -22,7 +22,7 @@
       "projectCredentialSynced": true,
       "nextIfRecurring": "优先检查 /Users/m10003000193/.trae/trae-jwt-token 是否存在、.pai/pai-preview-server.lock 指向的 PID 是否健康、.pai/pai.log 是否有 createCloudSession code=0。"
     },
-    "nextPrimaryTask": "成员权限管理已支持设为管理员/取消管理员：业务管理员可提升普通成员或取消其他业务管理员身份；管理员只需微信身份授权，不需要微信群验证。下一步用真机验证管理员晋升/取消和准入流程。"
+    "nextPrimaryTask": "微信群绑定仍提示需要从群卡片进入，已继续修复：App onShow 会缓存 Taro.getEnterOptionsSync().shareTicket 到 gangwa_latest_share_ticket，绑定时按 enterOptions/launchOptions/缓存顺序读取，避免页面切换后 shareTicket 丢失。请重新生成二维码/刷新真机包后再从群卡片进入绑定。"
   },
   "project": {
     "name": "gangwa-miniapp",

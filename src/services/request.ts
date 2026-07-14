@@ -14,6 +14,13 @@ interface RequestOptions {
 }
 
 const TOKEN_KEY = 'gangwa_auth_token';
+const showRequestLoading = () => {
+  Taro.showLoading({ title: '加载中', mask: true });
+};
+
+const hideRequestLoading = () => {
+  Taro.hideLoading();
+};
 
 const getRequestErrorMessage = (error: unknown) => {
   const errMsg = error && typeof error === 'object' && 'errMsg' in error && typeof error.errMsg === 'string' ? error.errMsg : '';
@@ -33,6 +40,7 @@ const getRequestErrorLog = (error: unknown) => ({
 export const request = async <T>(path: string, method: RequestMethod = 'GET', data?: unknown, options: RequestOptions = {}): Promise<T> => {
   const url = `${API_BASE_URL}${path}`;
   const token = Taro.getStorageSync<string>(TOKEN_KEY);
+  showRequestLoading();
   try {
     const response = await Taro.request<ApiResponse<T>>({
       url,
@@ -53,5 +61,7 @@ export const request = async <T>(path: string, method: RequestMethod = 'GET', da
     const message = getRequestErrorMessage(error);
     console.error('[Request] failed', { url, method, ...getRequestErrorLog(error) });
     throw new Error(message);
+  } finally {
+    hideRequestLoading();
   }
 };

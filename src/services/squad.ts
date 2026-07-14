@@ -4,6 +4,9 @@ import { Passenger, Squad } from '@/types/squad';
 import { getCurrentUser } from '@/services/auth';
 
 const SQUADS_KEY = 'gangwa_squads';
+const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
+
+const getBeijingDate = () => new Date(Date.now() + BEIJING_OFFSET).toISOString().slice(0, 10);
 
 const codeTextMap: Record<string, string> = {
   'RANKED SQUAD': '排位集结',
@@ -17,6 +20,7 @@ const normalizeSquad = (squad: Squad): Squad => {
   return {
     ...squad,
     code: codeTextMap[squad.code] || squad.code,
+    departDate: squad.departDate || getBeijingDate(),
     departTime: (squad.departTime || '--:--').slice(0, 5),
     status: squad.passengers.length >= squad.capacity ? 'ready' : 'recruiting',
     isCreator: squad.creatorOpenid === user.openid,
@@ -40,6 +44,7 @@ export const getSquadById = (id: number): Squad | undefined => getSquads().find(
 
 export interface CreateSquadInput {
   title: string;
+  departDate?: string;
   departTime: string;
   capacity: number;
   note: string;
@@ -57,6 +62,7 @@ export const createSquad = (input: CreateSquadInput): Squad => {
     code: '自定义车队',
     creatorOpenid: user.openid,
     creatorName: user.nickname,
+    departDate: input.departDate,
     departTime: input.departTime,
     capacity: input.capacity,
     note: input.note,

@@ -13,9 +13,12 @@ function App(props) {
 
   // 对应 onShow
   useDidShow(() => {
+    Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
     const enterOptions = Taro.getEnterOptionsSync?.();
-    if (enterOptions?.shareTicket) {
-      Taro.setStorageSync(SHARE_TICKET_KEY, enterOptions.shareTicket);
+    const launchOptions = Taro.getLaunchOptionsSync?.();
+    const shareTicket = enterOptions?.shareTicket || launchOptions?.shareTicket;
+    if (shareTicket) {
+      Taro.setStorageSync(SHARE_TICKET_KEY, { ticket: shareTicket, cachedAt: Date.now() });
     }
   });
 

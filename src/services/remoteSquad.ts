@@ -20,6 +20,7 @@ const normalizeSquad = (squad: Squad): Squad => {
     title: squad.title || '未命名车队',
     code: squad.code || '自定义车队',
     creatorName: squad.creatorName || '未知发起人',
+    departDate: squad.departDate,
     departTime: (squad.departTime || '--:--').slice(0, 5),
     note: squad.note || '无备注',
     status: normalizeStatus(squad.status, passengers, capacity)
