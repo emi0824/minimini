@@ -1,0 +1,18 @@
+allowBuilds:
+  '@parcel/watcher': false
+  '@swc/core': true
+  '@tarojs/binding': true
+  '@tarojs/cli': true
+  bufferutil: false
+  core-js: false
+  core-js-pure: false
+  esbuild: true
+  less: false
+  minidev: false
+  protobufjs: false
+overrides:
+  esbuild: 0.25.0
+  lodash-es: 4.18.1
+  swiper: 12.1.2
+  uuid: 11.1.1
+  webpack-dev-server: 5.2.5

@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const net = require('net');
 
 const PORT = Number(process.env.PORT || 3000);
 const PROXY_TARGET = process.env.PROXY_TARGET;
@@ -11,7 +12,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const ENV_FILE = '/etc/gangwa/gangwa.env';
 const MAX_BODY_SIZE = 16 * 1024;
 const TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
-const GROUP_VERIFY_TTL = 180 * 24 * 60 * 60 * 1000;
+const GROUP_VERIFY_TTL = 30 * 24 * 60 * 60 * 1000;
 const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
 const SUBSCRIBE_TEMPLATE_IDS = {
   squadMemberChanged: 'lsmPbz6F-1use0Ej3i5rFucq75PZhWNhJKb2AQdxES0',
@@ -45,10 +46,26 @@ if (PROXY_TARGET) {
     throw new Error('生产环境禁止启用 PROXY_TARGET 代理模式');
   }
 
+  const proxyBaseUrl = new URL(PROXY_TARGET);
+  if (!['http:', 'https:'].includes(proxyBaseUrl.protocol)) {
+    throw new Error('PROXY_TARGET 仅支持 http 或 https');
+  }
+
   const proxyServer = http.createServer((req, res) => {
-    const targetUrl = new URL(req.url, PROXY_TARGET);
+    if (typeof req.url !== 'string' || !req.url.startsWith('/') || req.url.startsWith('//')) {
+      res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, message: '代理请求地址格式错误' }));
+      return;
+    }
+    const targetUrl = new URL(req.url, proxyBaseUrl);
+    if (targetUrl.origin !== proxyBaseUrl.origin) {
+      res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, message: '代理请求目标不允许' }));
+      return;
+    }
     const { authorization, cookie, ...proxyHeaders } = req.headers;
-    const proxyReq = http.request(targetUrl, { method: req.method, headers: proxyHeaders }, (proxyRes) => {
+    const transport = targetUrl.protocol === 'https:' ? https : http;
+    const proxyReq = transport.request(targetUrl, { method: req.method, headers: proxyHeaders }, (proxyRes) => {
       res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
       proxyRes.pipe(res);
     });
@@ -58,7 +75,7 @@ if (PROXY_TARGET) {
     });
     req.pipe(proxyReq);
   });
-  proxyServer.listen(PORT, () => {
+  proxyServer.listen(PORT, '127.0.0.1', () => {
     console.log(`GangWa proxy listening on http://localhost:${PORT} -> ${PROXY_TARGET}`);
   });
   return;
@@ -119,7 +136,10 @@ const isTrustedProxy = (remoteAddress) => (
 const getClientIp = (req) => {
   const remoteAddress = req.socket.remoteAddress || 'unknown';
   const forwarded = req.headers['x-forwarded-for'];
-  if (isTrustedProxy(remoteAddress) && typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim();
+  if (isTrustedProxy(remoteAddress) && typeof forwarded === 'string' && forwarded) {
+    const forwardedIps = forwarded.split(',').map((item) => item.trim()).filter((item) => net.isIP(item));
+    if (forwardedIps.length > 0) return forwardedIps[forwardedIps.length - 1];
+  }
   return remoteAddress;
 };
 
@@ -347,9 +367,16 @@ const ok = (res, data) => send(res, 200, { ok: true, data });
 const fail = (res, status, message) => send(res, status, { ok: false, message });
 
 const serveStaticAsset = (req, res, pathname) => {
-  const relativePath = decodeURIComponent(pathname.replace(/^\/assets\//, 'assets/'));
-  const filePath = path.join(PUBLIC_DIR, relativePath);
-  if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath)) return false;
+  let relativePath;
+  try {
+    relativePath = decodeURIComponent(pathname.replace(/^\/assets\//, 'assets/'));
+  } catch {
+    fail(res, 400, '资源路径格式错误');
+    return true;
+  }
+  const filePath = path.resolve(PUBLIC_DIR, relativePath);
+  const relativeToPublic = path.relative(PUBLIC_DIR, filePath);
+  if (relativeToPublic.startsWith('..') || path.isAbsolute(relativeToPublic) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.png' ? 'image/png' : 'application/octet-stream';
@@ -547,12 +574,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
-
-  if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/assets/') && serveStaticAsset(req, res, pathname)) return;
-
   try {
+    if (typeof req.url !== 'string' || !req.url.startsWith('/') || req.url.startsWith('//')) {
+      throw Object.assign(new Error('请求地址格式错误'), { status: 400 });
+    }
+    const url = new URL(req.url, 'http://localhost');
+    const pathname = url.pathname;
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/assets/') && serveStaticAsset(req, res, pathname)) return;
+
     if (req.method === 'GET' && pathname === '/api/health') {
       ok(res, { status: 'ok' });
       return;
@@ -729,7 +759,7 @@ const server = http.createServer(async (req, res) => {
       const squadCapacity = capacity(body.capacity || 5);
       const squadNote = text(body.note || '无备注', '备注', 120, { required: false }) || '无备注';
       const squadTags = tags(body.tags);
-      const squad = await withWriteLock((data) => {
+      const { squad, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const id = Math.max(0, ...data.squads.map((item) => item.id)) + 1;
         const nextSquad = normalizeSquad({
@@ -747,9 +777,9 @@ const server = http.createServer(async (req, res) => {
           passengers: [{ id: Date.now(), openid: user.openid, nickname: user.nickname, role: '队长', isLeader: true }]
         });
         data.squads.unshift(nextSquad);
-        return nextSquad;
+        return { squad: nextSquad, viewerOpenid: user.openid };
       });
-      ok(res, squad);
+      ok(res, publicSquad(squad, viewerOpenid));
       return;
     }
 
@@ -789,24 +819,24 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const userRole = text(body.role || '补位', '角色', 16, { required: false }) || '补位';
       const userNote = text(body.note || '', '备注', 80, { required: false });
-      const { squad, dataSnapshot, operatorNickname } = await withWriteLock((data) => {
+      const { squad, dataSnapshot, operatorNickname, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const nextSquad = findSquad(data, Number(joinMatch[1]));
         if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
         if (nextSquad.passengers.some((item) => item.openid === user.openid)) throw Object.assign(new Error('你已在车队中'), { status: 400 });
         if (nextSquad.passengers.length >= nextSquad.capacity) throw Object.assign(new Error('车队已满员'), { status: 400 });
         nextSquad.passengers.push({ id: Date.now(), openid: user.openid, nickname: user.nickname, role: userRole, note: userNote || undefined });
-        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: user.nickname };
+        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: user.nickname, viewerOpenid: user.openid };
       });
       notifyMemberChanged(dataSnapshot, squad, operatorNickname, '加入车队');
-      ok(res, squad);
+      ok(res, publicSquad(squad, viewerOpenid));
       return;
     }
 
     const leaveMatch = pathname.match(/^\/api\/squads\/(\d+)\/leave$/);
     if (leaveMatch && req.method === 'POST') {
       checkRateLimit(req, 'write', 30, 60 * 1000);
-      const { squad, dataSnapshot, operatorNickname } = await withWriteLock((data) => {
+      const { squad, dataSnapshot, operatorNickname, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const nextSquad = findSquad(data, Number(leaveMatch[1]));
         if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
@@ -814,10 +844,10 @@ const server = http.createServer(async (req, res) => {
         const passenger = nextSquad.passengers.find((item) => item.openid === user.openid);
         if (!passenger) throw Object.assign(new Error('你不在该车队中'), { status: 400 });
         nextSquad.passengers = nextSquad.passengers.filter((item) => item.openid !== user.openid);
-        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: passenger.nickname };
+        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: passenger.nickname, viewerOpenid: user.openid };
       });
       notifyMemberChanged(dataSnapshot, squad, operatorNickname, '退出车队');
-      ok(res, squad);
+      ok(res, publicSquad(squad, viewerOpenid));
       return;
     }
 
