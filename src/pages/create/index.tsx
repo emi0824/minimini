@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Input, Textarea, Button, Picker } from '@tarojs/components';
-import Taro, { useLoad, usePullDownRefresh } from '@tarojs/taro';
+import Taro, { useLoad, usePullDownRefresh, useRouter } from '@tarojs/taro';
 import { getCurrentUser, hasAuthSession } from '@/services/auth';
-import { createSquadApi } from '@/services/squadApi';
+import { createSquadApi, getSquadByIdApi, updateSquadApi } from '@/services/squadApi';
 import { requestSquadMemberChangeSubscribe } from '@/services/subscription';
 import { cacheCurrentShareTicket, ensureAuthorizedOrRedirect, getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
@@ -29,6 +29,9 @@ const getTimePickerValue = (time: string) => {
 };
 
 const CreatePage: React.FC = () => {
+  const router = useRouter();
+  const editSquadId = Number(router.params.editId || 0);
+  const isEditMode = Number.isInteger(editSquadId) && editSquadId > 0;
   const user = getCurrentUser();
   const nickname = user.nickname === '未命名成员' ? '' : user.nickname;
   const [departDate, setDepartDate] = useState(() => getBeijingDate());
@@ -39,6 +42,7 @@ const CreatePage: React.FC = () => {
   const [note, setNote] = useState('缺辅助，语音开黑，别鸽。');
   const [accessChecking, setAccessChecking] = useState(() => hasAuthSession());
   const [accessMessage, setAccessMessage] = useState('正在检查微信群准入状态...');
+  const [editingSquadLoaded, setEditingSquadLoaded] = useState(!isEditMode);
   const timePickerValue = useMemo(() => getTimePickerValue(departTime), [departTime]);
 
   useLoad((options) => {
@@ -52,6 +56,7 @@ const CreatePage: React.FC = () => {
 
   useEffect(() => {
     const verifyAccess = async () => {
+      Taro.setNavigationBarTitle({ title: isEditMode ? '编辑车队' : '创建车队' });
       cacheCurrentShareTicket();
       if (!hasAuthSession()) {
         setAccessChecking(false);
@@ -66,15 +71,32 @@ const CreatePage: React.FC = () => {
           return;
         }
         if (state.needsGroupVerify) await verifyWechatGroupAccess();
+        if (isEditMode) {
+          const squad = await getSquadByIdApi(editSquadId);
+          if (!squad) throw new Error('车队不存在');
+          if (!squad.isCreator) throw new Error('只有队长可以修改车队信息');
+          if (squad.passengers.length > 1) throw new Error('车队已有成员，不支持修改信息');
+          setDepartDate(squad.departDate || getBeijingDate());
+          setDepartTime(squad.departTime.slice(0, 5));
+          setTitle(squad.title);
+          setCapacity(squad.capacity);
+          setSelectedTags(squad.tags);
+          setNote(squad.note);
+          setEditingSquadLoaded(true);
+        }
         setAccessChecking(false);
       } catch (error) {
         setAccessMessage(error instanceof Error ? error.message : '请从准入微信群卡片进入完成验证');
         setAccessChecking(false);
+        if (isEditMode) {
+          Taro.showToast({ title: error instanceof Error ? error.message : '车队信息加载失败', icon: 'none' });
+          setTimeout(() => Taro.redirectTo({ url: `/pages/detail/index?id=${editSquadId}` }), 600);
+        }
       }
     };
 
     verifyAccess();
-  }, []);
+  }, [editSquadId, isEditMode]);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((items) => (
@@ -97,35 +119,42 @@ const CreatePage: React.FC = () => {
       Taro.showToast({ title: '请填写发车日期、时间和车队名称', icon: 'none' });
       return;
     }
+    if (isEditMode && !editingSquadLoaded) {
+      Taro.showToast({ title: accessChecking ? accessMessage : '车队信息尚未加载完成', icon: 'none' });
+      return;
+    }
 
     if (!await ensureAuthorizedOrRedirect()) return;
 
     try {
-      await requestSquadMemberChangeSubscribe();
-      const squad = await createSquadApi({
+      if (!isEditMode) await requestSquadMemberChangeSubscribe();
+      const input = {
         title: finalTitle,
         departDate,
         departTime,
         capacity,
         note: note.trim() || '无备注',
         tags: selectedTags
-      });
-      console.info('[Create] created squad', { id: squad.id });
+      };
+      const squad = isEditMode
+        ? await updateSquadApi(editSquadId, input)
+        : await createSquadApi(input);
+      console.info(isEditMode ? '[Create] updated squad' : '[Create] created squad', { id: squad.id });
       markPagesNeedRefresh();
-      Taro.showToast({ title: '车队已创建', icon: 'success' });
+      Taro.showToast({ title: isEditMode ? '车队已重新发布' : '车队已创建', icon: 'success' });
       setTimeout(() => Taro.redirectTo({ url: `/pages/detail/index?id=${squad.id}` }), 500);
     } catch (error) {
       console.error('[Create] create failed', error);
-      Taro.showToast({ title: error instanceof Error ? error.message : '创建失败', icon: 'none' });
+      Taro.showToast({ title: error instanceof Error ? error.message : (isEditMode ? '重新发布失败' : '创建失败'), icon: 'none' });
     }
   };
 
   return (
     <View className={styles.page}>
       <View className={styles.header}>
-        <Text className={styles.kicker}>创建新的车队</Text>
-        <Text className={styles.title}>创建车队</Text>
-        <Text className={styles.desc}>填写发车时间和组队要求，群友即可加入。</Text>
+        <Text className={styles.kicker}>{isEditMode ? '更新车队信息' : '创建新的车队'}</Text>
+        <Text className={styles.title}>{isEditMode ? '编辑车队' : '创建车队'}</Text>
+        <Text className={styles.desc}>{isEditMode ? '修改后重新发布，将覆盖原有车队信息。' : '填写发车时间和组队要求，群友即可加入。'}</Text>
       </View>
 
       <View className={styles.formCard}>
@@ -182,7 +211,7 @@ const CreatePage: React.FC = () => {
         </View>
       </View>
 
-      <Button className={styles.submitButton} onClick={handleSubmit}>确认创建车队</Button>
+      <Button className={styles.submitButton} onClick={handleSubmit}>{isEditMode ? '重新发布车队' : '确认创建车队'}</Button>
     </View>
   );
 };

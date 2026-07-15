@@ -11,7 +11,8 @@ import {
   JoinSquadInput,
   leaveSquad,
   resetSquads,
-  syncNicknameInSquads
+  syncNicknameInSquads,
+  updateSquad
 } from '@/services/squad';
 import {
   createRemoteSquad,
@@ -20,7 +21,8 @@ import {
   getRemoteSquads,
   joinRemoteSquad,
   leaveRemoteSquad,
-  updateRemoteNickname
+  updateRemoteNickname,
+  updateRemoteSquad
 } from '@/services/remoteSquad';
 import { Squad, UserProfile } from '@/types/squad';
 
@@ -51,6 +53,14 @@ export const createSquadApi = async (input: CreateSquadInput): Promise<Squad> =>
     return createRemoteSquad(input);
   }
   return createSquad(input);
+};
+
+export const updateSquadApi = async (squadId: number, input: CreateSquadInput): Promise<Squad> => {
+  if (isRemoteApiEnabled()) {
+    await ensureActiveAccess();
+    return updateRemoteSquad(squadId, input);
+  }
+  return updateSquad(squadId, input);
 };
 
 export const joinSquadApi = async (squadId: number, input: JoinSquadInput): Promise<Squad> => {

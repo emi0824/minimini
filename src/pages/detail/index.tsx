@@ -104,6 +104,7 @@ const DetailPage: React.FC = () => {
 
   const isCreator = Boolean(squad.isCreator) || squad.creatorOpenid === user.openid;
   const isJoined = Boolean(squad.isJoined) || squad.passengers.some((item) => item.openid === user.openid);
+  const hasJoinedMembers = squad.passengers.length > 1;
   const restSlots = Math.max(squad.capacity - squad.passengers.length, 0);
   const forceRefresh = () => setVersion((value) => value + 1);
 
@@ -168,6 +169,14 @@ const DetailPage: React.FC = () => {
     });
   };
 
+  const handleEdit = () => {
+    if (hasJoinedMembers) {
+      Taro.showToast({ title: '车队已有成员，不支持修改信息', icon: 'none' });
+      return;
+    }
+    Taro.navigateTo({ url: `/pages/create/index?editId=${squad.id}` });
+  };
+
   return (
     <View className={styles.page} data-version={version}>
       <View className={styles.headerCard}>
@@ -219,6 +228,15 @@ const DetailPage: React.FC = () => {
 
       <View className={styles.actionStack}>
         {!isJoined && squad.status !== 'ready' && <Button className={styles.primaryButton} onClick={handleJoin}>加入车队</Button>}
+        {isCreator && (
+          <Button
+            className={`${styles.editButton} ${hasJoinedMembers ? styles.editButtonDisabled : ''}`}
+            data-disabled={hasJoinedMembers}
+            onClick={handleEdit}
+          >
+            编辑车队信息
+          </Button>
+        )}
         <Button className={styles.secondaryButton} openType='share'>分享车队</Button>
         {isJoined && !isCreator && <Button className={styles.dangerButton} onClick={handleLeave}>退出我的座位</Button>}
         {isCreator && <Button className={styles.dangerGhostButton} onClick={handleDismiss}>解散车队</Button>}

@@ -44,6 +44,10 @@ export const createRemoteSquad = async (input: CreateSquadInput): Promise<Squad>
   normalizeSquad(await request<Squad>('/api/squads', 'POST', input))
 );
 
+export const updateRemoteSquad = async (squadId: number, input: CreateSquadInput): Promise<Squad> => (
+  normalizeSquad(await request<Squad>(`/api/squads/${squadId}`, 'PUT', input))
+);
+
 export const joinRemoteSquad = async (squadId: number, input: JoinSquadInput): Promise<Squad> => (
   normalizeSquad(await request<Squad>(`/api/squads/${squadId}/join`, 'POST', input))
 );
