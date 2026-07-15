@@ -12,6 +12,8 @@ import {
   leaveSquad,
   resetSquads,
   syncNicknameInSquads,
+  UpdatePassengerInfoInput,
+  updatePassengerInfo,
   updateSquad
 } from '@/services/squad';
 import {
@@ -22,6 +24,7 @@ import {
   getRemoteSquads,
   joinRemoteSquad,
   leaveRemoteSquad,
+  updateRemotePassengerInfo,
   updateRemoteNickname,
   updateRemoteSquad
 } from '@/services/remoteSquad';
@@ -30,6 +33,11 @@ import { Squad, UserProfile } from '@/types/squad';
 export interface HomeData {
   user: UserProfile;
   squads: Squad[];
+}
+
+export interface PassengerInfoResult {
+  user: UserProfile;
+  squad: Squad;
 }
 
 export const getHomeApi = async (): Promise<HomeData> => {
@@ -92,6 +100,17 @@ export const leaveSquadApi = async (squadId: number): Promise<Squad> => {
     return leaveRemoteSquad(squadId);
   }
   return leaveSquad(squadId);
+};
+
+export const updatePassengerInfoApi = async (squadId: number, input: UpdatePassengerInfoInput): Promise<PassengerInfoResult> => {
+  if (isRemoteApiEnabled()) {
+    const result = await updateRemotePassengerInfo(squadId, input);
+    return { ...result, user: saveUserProfile(result.user) };
+  }
+
+  const user = updateNickname(input.nickname.trim());
+  syncNicknameInSquads(user.openid, user.nickname);
+  return { user, squad: updatePassengerInfo(squadId, input.note) };
 };
 
 export const dismissSquadApi = async (squadId: number): Promise<void> => {

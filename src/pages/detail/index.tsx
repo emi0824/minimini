@@ -3,7 +3,7 @@ import { View, Text, Button, Input, Textarea } from '@tarojs/components';
 import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
 import StatusPill from '@/components/StatusPill';
 import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
-import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi } from '@/services/squadApi';
+import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi, updatePassengerInfoApi } from '@/services/squadApi';
 import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
 import { cacheCurrentShareTicket, ensureAuthorizedOrRedirect, getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
@@ -21,6 +21,9 @@ const DetailPage: React.FC = () => {
   const [nickname, setNickname] = useState(user.nickname === '未命名成员' ? '' : user.nickname);
   const [role, setRole] = useState('补位');
   const [note, setNote] = useState('');
+  const [isEditingMyInfo, setIsEditingMyInfo] = useState(false);
+  const [myNickname, setMyNickname] = useState(user.nickname === '未命名成员' ? '' : user.nickname);
+  const [myNote, setMyNote] = useState('');
 
   useLoad((options) => {
     Taro.showShareMenu({ withShareTicket: true }).catch(() => undefined);
@@ -104,6 +107,7 @@ const DetailPage: React.FC = () => {
 
   const isCreator = Boolean(squad.isCreator) || squad.creatorOpenid === user.openid;
   const isJoined = Boolean(squad.isJoined) || squad.passengers.some((item) => item.openid === user.openid);
+  const myPassenger = squad.passengers.find((item) => item.isSelf || item.openid === user.openid);
   const hasJoinedMembers = squad.passengers.length > 1;
   const restSlots = Math.max(squad.capacity - squad.passengers.length, 0);
   const forceRefresh = () => setVersion((value) => value + 1);
@@ -177,6 +181,34 @@ const DetailPage: React.FC = () => {
     Taro.redirectTo({ url: `/pages/create/index?editId=${squad.id}` });
   };
 
+  const handleOpenMyInfo = () => {
+    setMyNickname(getCurrentUser().nickname === '未命名成员' ? '' : getCurrentUser().nickname);
+    setMyNote(myPassenger?.note || '');
+    setIsEditingMyInfo(true);
+  };
+
+  const handleSaveMyInfo = async () => {
+    const finalNickname = myNickname.trim();
+    if (!finalNickname) {
+      Taro.showToast({ title: '请填写昵称', icon: 'none' });
+      return;
+    }
+
+    try {
+      const result = await updatePassengerInfoApi(squad.id, { nickname: finalNickname, note: myNote.trim() });
+      shareSquadRef.current = result.squad;
+      setSquad(result.squad);
+      setNickname(result.user.nickname);
+      setMyNickname(result.user.nickname);
+      setIsEditingMyInfo(false);
+      markPagesNeedRefresh();
+      Taro.showToast({ title: '上车信息已更新', icon: 'success' });
+    } catch (error) {
+      console.error('[Detail] update passenger info failed', error);
+      Taro.showToast({ title: error instanceof Error ? error.message : '上车信息更新失败', icon: 'none' });
+    }
+  };
+
   return (
     <View className={styles.page} data-version={version}>
       <View className={styles.headerCard}>
@@ -226,8 +258,22 @@ const DetailPage: React.FC = () => {
         })}
       </View>
 
+      {isJoined && isEditingMyInfo && (
+        <View className={styles.myInfoCard}>
+          <Text className={styles.sectionTitle}>编辑我的上车信息</Text>
+          <Text className={styles.formHint}>昵称为全局资料，保存后会同步更新到所有页面和车队。</Text>
+          <Input className={styles.joinInput} maxlength={20} placeholder='你的游戏昵称' value={myNickname} onInput={(event) => setMyNickname(String(event.detail.value))} />
+          <Textarea className={styles.joinTextarea} maxlength={80} placeholder='备注，例如 21:40 到' value={myNote} onInput={(event) => setMyNote(String(event.detail.value))} />
+          <View className={styles.formActions}>
+            <Button className={styles.primaryButton} onClick={handleSaveMyInfo}>保存修改</Button>
+            <Button className={styles.secondaryButton} onClick={() => setIsEditingMyInfo(false)}>取消</Button>
+          </View>
+        </View>
+      )}
+
       <View className={styles.actionStack}>
         {!isJoined && squad.status !== 'ready' && <Button className={styles.primaryButton} onClick={handleJoin}>加入车队</Button>}
+        {isJoined && !isEditingMyInfo && <Button className={styles.secondaryButton} onClick={handleOpenMyInfo}>编辑我的上车信息</Button>}
         {isCreator && (
           <Button
             className={`${styles.editButton} ${hasJoinedMembers ? styles.editButtonDisabled : ''}`}

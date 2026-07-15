@@ -340,7 +340,10 @@ const publicSquad = (squad, viewerOpenid = '') => {
     departTime: publicDepartTime(rest.departTime),
     isCreator: Boolean(viewerOpenid && creatorOpenid === viewerOpenid),
     isJoined: Boolean(viewerOpenid && normalized.passengers.some((passenger) => passenger.openid === viewerOpenid)),
-    passengers: normalized.passengers.map(({ openid, ...passenger }) => passenger)
+    passengers: normalized.passengers.map(({ openid, ...passenger }) => ({
+      ...passenger,
+      isSelf: Boolean(viewerOpenid && openid === viewerOpenid)
+    }))
   };
 };
 
@@ -889,6 +892,35 @@ const server = http.createServer(async (req, res) => {
       });
       notifyMemberChanged(dataSnapshot, squad, operatorNickname, '退出车队');
       ok(res, publicSquad(squad, viewerOpenid));
+      return;
+    }
+
+    const passengerMeMatch = pathname.match(/^\/api\/squads\/(\d+)\/passengers\/me$/);
+    if (passengerMeMatch && req.method === 'PUT') {
+      checkRateLimit(req, 'write', 30, 60 * 1000);
+      const body = await parseBody(req);
+      const nextNickname = text(body.nickname, '昵称', 20);
+      const nextNote = text(body.note || '', '备注', 80, { required: false });
+      const result = await withWriteLock((data) => {
+        const user = requireActiveUser(req, data);
+        const squad = findSquad(data, Number(passengerMeMatch[1]));
+        if (!squad) throw Object.assign(new Error('车队不存在'), { status: 404 });
+        if (!squad.passengers.some((passenger) => passenger.openid === user.openid)) {
+          throw Object.assign(new Error('你不在该车队中'), { status: 403 });
+        }
+
+        user.nickname = nextNickname;
+        syncUserNicknameInSquads(data, user.openid, nextNickname);
+        const passenger = squad.passengers.find((item) => item.openid === user.openid);
+        if (nextNote) passenger.note = nextNote;
+        else delete passenger.note;
+
+        return {
+          user: publicUser(user),
+          squad: publicSquad(normalizeSquad(squad), user.openid)
+        };
+      });
+      ok(res, result);
       return;
     }
 

@@ -177,6 +177,31 @@
   padding: 18rpx 20rpx;
 }
 
+.myInfoCard {
+  margin-top: 32rpx;
+  padding: 28rpx 32rpx 32rpx;
+  border: 1rpx solid $color-border;
+  background: $color-bg-card;
+}
+
+.myInfoCard .sectionTitle {
+  margin-top: 0;
+}
+
+.formHint {
+  display: block;
+  color: $color-text-tertiary;
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.formActions {
+  margin-top: 22rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
 .actionStack {
   margin-top: 34rpx;
   display: flex;
