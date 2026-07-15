@@ -7,6 +7,7 @@ export interface Passenger {
   role: string;
   note?: string;
   isLeader?: boolean;
+  isSelf?: boolean;
 }
 
 export interface Squad {

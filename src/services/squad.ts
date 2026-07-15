@@ -24,7 +24,11 @@ const normalizeSquad = (squad: Squad): Squad => {
     departTime: (squad.departTime || '--:--').slice(0, 5),
     status: squad.passengers.length >= squad.capacity ? 'ready' : 'recruiting',
     isCreator: squad.creatorOpenid === user.openid,
-    isJoined: squad.passengers.some((passenger) => passenger.openid === user.openid)
+    isJoined: squad.passengers.some((passenger) => passenger.openid === user.openid),
+    passengers: squad.passengers.map((passenger) => ({
+      ...passenger,
+      isSelf: passenger.openid === user.openid
+    }))
   };
 };
 
@@ -113,6 +117,11 @@ export interface JoinSquadInput {
   note?: string;
 }
 
+export interface UpdatePassengerInfoInput {
+  nickname: string;
+  note?: string;
+}
+
 export const joinSquad = (squadId: number, input: JoinSquadInput): Squad => {
   const user = getCurrentUser();
   const squads = getSquads();
@@ -146,6 +155,28 @@ export const leaveSquad = (squadId: number): Squad => {
   const nextSquad = normalizeSquad({ ...squad, passengers: squad.passengers.filter((item) => item.openid !== user.openid) });
   persist(squads.map((item) => (item.id === squadId ? nextSquad : item)));
   console.info('[Squad] leave squad', { squadId });
+  return nextSquad;
+};
+
+export const updatePassengerInfo = (squadId: number, note?: string): Squad => {
+  const user = getCurrentUser();
+  const squads = getSquads();
+  const squad = squads.find((item) => item.id === squadId);
+  if (!squad) throw new Error('车队不存在');
+  if (!squad.passengers.some((item) => item.openid === user.openid)) throw new Error('你不在该车队中');
+
+  const nextNote = note?.trim();
+  const nextSquad = normalizeSquad({
+    ...squad,
+    passengers: squad.passengers.map((passenger) => {
+      if (passenger.openid !== user.openid) return passenger;
+      const nextPassenger = { ...passenger };
+      if (nextNote) nextPassenger.note = nextNote;
+      else delete nextPassenger.note;
+      return nextPassenger;
+    })
+  });
+  persist(squads.map((item) => (item.id === squadId ? nextSquad : item)));
   return nextSquad;
 };
 

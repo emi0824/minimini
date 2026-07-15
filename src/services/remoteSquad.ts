@@ -1,4 +1,4 @@
-import type { CreateSquadInput, JoinSquadInput } from '@/services/squad';
+import type { CreateSquadInput, JoinSquadInput, UpdatePassengerInfoInput } from '@/services/squad';
 import { Passenger, Squad, SquadStatus, UserProfile } from '@/types/squad';
 import { request } from '@/services/request';
 
@@ -30,6 +30,11 @@ const normalizeSquad = (squad: Squad): Squad => {
 export interface RemoteHomeData {
   user: UserProfile;
   squads: Squad[];
+}
+
+export interface RemotePassengerInfoResult {
+  user: UserProfile;
+  squad: Squad;
 }
 
 export const getRemoteUser = (): Promise<UserProfile> => request<UserProfile>('/api/users/me');
@@ -68,6 +73,11 @@ export const joinRemoteSquad = async (squadId: number, input: JoinSquadInput): P
 export const leaveRemoteSquad = async (squadId: number): Promise<Squad> => (
   normalizeSquad(await request<Squad>(`/api/squads/${squadId}/leave`, 'POST'))
 );
+
+export const updateRemotePassengerInfo = async (squadId: number, input: UpdatePassengerInfoInput): Promise<RemotePassengerInfoResult> => {
+  const result = await request<RemotePassengerInfoResult>(`/api/squads/${squadId}/passengers/me`, 'PUT', input);
+  return { user: result.user, squad: normalizeSquad(result.squad) };
+};
 
 export const dismissRemoteSquad = (squadId: number): Promise<void> => (
   request<void>(`/api/squads/${squadId}`, 'DELETE')
