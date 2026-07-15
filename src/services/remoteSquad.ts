@@ -27,6 +27,11 @@ const normalizeSquad = (squad: Squad): Squad => {
   };
 };
 
+export interface RemoteHomeData {
+  user: UserProfile;
+  squads: Squad[];
+}
+
 export const getRemoteUser = (): Promise<UserProfile> => request<UserProfile>('/api/users/me');
 
 export const updateRemoteNickname = (nickname: string): Promise<UserProfile> => (
@@ -36,6 +41,14 @@ export const updateRemoteNickname = (nickname: string): Promise<UserProfile> => 
 export const getRemoteSquads = async (): Promise<Squad[]> => {
   const squads = await request<Squad[]>('/api/squads');
   return squads.map(normalizeSquad);
+};
+
+export const getRemoteHome = async (): Promise<RemoteHomeData> => {
+  const result = await request<RemoteHomeData>('/api/home', 'GET', undefined, { showLoading: false });
+  return {
+    user: result.user,
+    squads: result.squads.map(normalizeSquad)
+  };
 };
 
 export const getRemoteSquadById = async (id: number): Promise<Squad> => normalizeSquad(await request<Squad>(`/api/squads/${id}`));

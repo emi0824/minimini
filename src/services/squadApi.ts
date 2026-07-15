@@ -1,5 +1,5 @@
 import { isRemoteApiEnabled } from '@/config/api';
-import { bindWechatUserWithNickname, saveUserProfile, updateNickname } from '@/services/auth';
+import { bindWechatUserWithNickname, getCurrentUser, saveUserProfile, updateNickname } from '@/services/auth';
 import { ensureActiveAccess } from '@/services/accessControl';
 import {
   createSquad,
@@ -18,6 +18,7 @@ import {
   createRemoteSquad,
   dismissRemoteSquad,
   getRemoteSquadById,
+  getRemoteHome,
   getRemoteSquads,
   joinRemoteSquad,
   leaveRemoteSquad,
@@ -25,6 +26,19 @@ import {
   updateRemoteSquad
 } from '@/services/remoteSquad';
 import { Squad, UserProfile } from '@/types/squad';
+
+export interface HomeData {
+  user: UserProfile;
+  squads: Squad[];
+}
+
+export const getHomeApi = async (): Promise<HomeData> => {
+  if (isRemoteApiEnabled()) {
+    const result = await getRemoteHome();
+    return { ...result, user: saveUserProfile(result.user) };
+  }
+  return { user: getCurrentUser(), squads: getSquads() };
+};
 
 export const updateNicknameApi = async (nickname: string): Promise<UserProfile> => {
   if (isRemoteApiEnabled()) {

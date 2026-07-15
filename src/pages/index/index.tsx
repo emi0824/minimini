@@ -4,8 +4,8 @@ import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from
 import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
-import { getSquadsApi } from '@/services/squadApi';
-import { ensureAuthenticatedUser, hasAuthSession } from '@/services/auth';
+import { getHomeApi } from '@/services/squadApi';
+import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { cacheCurrentShareTicket, getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { Squad } from '@/types/squad';
 import styles from './index.module.scss';
@@ -20,15 +20,52 @@ const sortSquadsByDepartTime = (items: Squad[]) => (
 
 type AccessViewStatus = 'checking' | 'allowed' | 'needAuth' | 'needGroup' | 'disabled';
 type HomeTab = 'lobby' | 'mine';
+const HOME_CACHE_TTL = 5 * 60 * 1000;
+
+interface HomeSquadCache {
+  openid: string;
+  cachedAt: number;
+  squads: Squad[];
+}
+
+const getHomeCacheKey = (openid: string) => `gangwa_home_squads_${openid}`;
+
+const getCachedHomeSquads = () => {
+  if (!hasAuthSession()) return [];
+  const accessState = getCachedAccessState();
+  if (accessState.isDisabled || accessState.needsGroupVerify) return [];
+  const user = getCurrentUser();
+  const cached = Taro.getStorageSync<HomeSquadCache>(getHomeCacheKey(user.openid));
+  if (!cached || cached.openid !== user.openid || !Array.isArray(cached.squads)) return [];
+  if (Date.now() - Number(cached.cachedAt || 0) > HOME_CACHE_TTL) return [];
+  return sortSquadsByDepartTime(cached.squads);
+};
+
+const saveHomeSquads = (squads: Squad[]) => {
+  const user = getCurrentUser();
+  Taro.setStorageSync(getHomeCacheKey(user.openid), { openid: user.openid, cachedAt: Date.now(), squads });
+};
+
+const clearHomeSquads = () => {
+  const user = getCurrentUser();
+  Taro.removeStorageSync(getHomeCacheKey(user.openid));
+};
 
 const IndexPage: React.FC = () => {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<HomeTab>(() => (router.params.tab === 'mine' ? 'mine' : 'lobby'));
+  const startsOnMine = router.params.tab === 'mine';
+  const [activeTab, setActiveTab] = useState<HomeTab>(() => (startsOnMine ? 'mine' : 'lobby'));
+  const [hasOpenedMine, setHasOpenedMine] = useState(startsOnMine);
   const [mineRefreshSignal, setMineRefreshSignal] = useState(0);
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
   const { version } = useFocusRefresh();
-  const [squads, setSquads] = useState<Squad[]>([]);
+  const [squads, setSquads] = useState<Squad[]>(getCachedHomeSquads);
+  const [homeRefreshing, setHomeRefreshing] = useState(() => {
+    if (!hasAuthSession()) return false;
+    const cachedState = getCachedAccessState();
+    return !cachedState.isDisabled && !cachedState.needsGroupVerify;
+  });
   const [accessStatus, setAccessStatus] = useState<AccessViewStatus>(() => {
     if (!hasAuthSession()) return 'needAuth';
     const cachedState = getCachedAccessState();
@@ -59,10 +96,12 @@ const IndexPage: React.FC = () => {
     accessStatusRef.current = accessStatus;
   }, [accessStatus]);
 
-  const loadSquads = async (isLatestLoad: () => boolean) => {
-    const items = await getSquadsApi();
+  const loadHome = async (isLatestLoad: () => boolean) => {
+    const result = await getHomeApi();
     if (!isLatestLoad()) return;
-    setSquads(sortSquadsByDepartTime(items));
+    const items = sortSquadsByDepartTime(result.squads);
+    setSquads(items);
+    saveHomeSquads(items);
     setAccessStatus('allowed');
   };
 
@@ -72,6 +111,7 @@ const IndexPage: React.FC = () => {
     loadSeqRef.current = loadSeq;
     const isLatestLoad = () => loadSeqRef.current === loadSeq;
     const wasAllowed = accessStatusRef.current === 'allowed';
+    setHomeRefreshing(true);
     if (!wasAllowed) {
       setAccessStatus('checking');
       setAccessMessage('正在检查微信群准入状态...');
@@ -81,6 +121,12 @@ const IndexPage: React.FC = () => {
         if (!wasAllowed) setSquads([]);
         setAccessStatus('needAuth');
         setAccessMessage('请先授权微信身份，随后从准入微信群卡片进入完成成员验证。');
+        return;
+      }
+
+      const cachedState = getCachedAccessState();
+      if (!cachedState.isDisabled && !cachedState.needsGroupVerify) {
+        await loadHome(isLatestLoad);
         return;
       }
 
@@ -96,7 +142,7 @@ const IndexPage: React.FC = () => {
       if (state.needsGroupVerify) {
         try {
           await verifyWechatGroupAccess();
-          await loadSquads(isLatestLoad);
+          await loadHome(isLatestLoad);
         } catch (error) {
           if (!wasAllowed) setSquads([]);
           setAccessStatus('needGroup');
@@ -105,13 +151,37 @@ const IndexPage: React.FC = () => {
         return;
       }
 
-      await loadSquads(isLatestLoad);
+      await loadHome(isLatestLoad);
     } catch (error) {
       console.error('[Lobby] access check failed', error);
       if (!isLatestLoad()) return;
-      if (!wasAllowed) setSquads([]);
-      setAccessStatus('needAuth');
-      setAccessMessage(error instanceof Error ? error.message : '请先授权微信身份');
+      const message = error instanceof Error ? error.message : '首页刷新失败';
+      if (message.includes('微信群') || message.includes('群内')) {
+        clearHomeSquads();
+        setSquads([]);
+        setAccessStatus('needGroup');
+        setAccessMessage('本小程序仅限指定车队群成员使用。请从群内分享的小程序卡片进入，完成成员验证后即可使用。');
+      } else if (message.includes('禁用') || message.includes('权限已被')) {
+        clearHomeSquads();
+        setSquads([]);
+        setAccessStatus('disabled');
+        setAccessMessage(message);
+      } else if (message.includes('请先登录') || message.includes('登录已失效') || message.includes('登录已过期')) {
+        clearHomeSquads();
+        setSquads([]);
+        setAccessStatus('needAuth');
+        setAccessMessage('登录已失效，请重新授权微信身份。');
+      } else if (wasAllowed) {
+        setAccessStatus('allowed');
+        Taro.showToast({ title: '网络较慢，已显示最近车队信息', icon: 'none' });
+      } else {
+        clearHomeSquads();
+        setSquads([]);
+        setAccessStatus('needAuth');
+        setAccessMessage(message || '请先授权微信身份');
+      }
+    } finally {
+      if (isLatestLoad()) setHomeRefreshing(false);
     }
   };
 
@@ -175,6 +245,11 @@ const IndexPage: React.FC = () => {
     Taro.navigateTo({ url: '/pages/create/index' });
   };
 
+  const handleTabChange = (tab: HomeTab) => {
+    if (tab === 'mine') setHasOpenedMine(true);
+    setActiveTab(tab);
+  };
+
   return (
     <View className={styles.page} data-version={version}>
       <View className={activeTab === 'lobby' ? styles.tabPaneActive : styles.tabPaneHidden}>
@@ -216,10 +291,11 @@ const IndexPage: React.FC = () => {
           </View>
 
           <View className={styles.list}>
+            {homeRefreshing && <Text className={styles.sectionDesc}>{squads.length > 0 ? '正在同步最新车队...' : '正在加载车队...'}</Text>}
             {visibleSquads.map((squad) => (
               <SquadCard squad={squad} key={squad.id} />
             ))}
-            {visibleSquads.length === 0 && <Text className={styles.sectionDesc}>{squads.length === 0 ? '暂无车队，快来创建第一辆。' : '暂无未满员车队。'}</Text>}
+            {!homeRefreshing && visibleSquads.length === 0 && <Text className={styles.sectionDesc}>{squads.length === 0 ? '暂无车队，快来创建第一辆。' : '暂无未满员车队。'}</Text>}
           </View>
         </View>
 
@@ -237,14 +313,14 @@ const IndexPage: React.FC = () => {
       </View>
 
       <View className={activeTab === 'mine' ? styles.tabPaneActive : styles.tabPaneHidden}>
-        <MinePage active={activeTab === 'mine'} refreshSignal={mineRefreshSignal} />
+        {hasOpenedMine && <MinePage active={activeTab === 'mine'} refreshSignal={mineRefreshSignal} />}
       </View>
 
       <View className={styles.customTabBar}>
-        <View className={activeTab === 'lobby' ? styles.customTabActive : styles.customTab} onClick={() => setActiveTab('lobby')}>
+        <View className={activeTab === 'lobby' ? styles.customTabActive : styles.customTab} onClick={() => handleTabChange('lobby')}>
           <Text>大厅</Text>
         </View>
-        <View className={activeTab === 'mine' ? styles.customTabActive : styles.customTab} onClick={() => setActiveTab('mine')}>
+        <View className={activeTab === 'mine' ? styles.customTabActive : styles.customTab} onClick={() => handleTabChange('mine')}>
           <Text>我的</Text>
         </View>
       </View>

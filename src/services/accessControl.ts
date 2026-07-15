@@ -23,6 +23,7 @@ export interface GroupBindingState {
 const isWeb = () => Taro.getEnv() === Taro.ENV_TYPE.WEB;
 const SHARE_TICKET_KEY = 'gangwa_latest_share_ticket';
 const SHARE_TICKET_TTL = 5 * 60 * 1000;
+const GROUP_VERIFY_TTL = 30 * 24 * 60 * 60 * 1000;
 
 interface ShareTicketCache {
   ticket: string;
@@ -92,7 +93,12 @@ const createAccessState = (user: UserProfile): AccessState => {
   const isAdmin = user.role === 'admin';
   const isRootAdmin = user.isRootAdmin === true;
   const isDisabled = user.disabled === true;
-  const isGroupVerified = isAdmin || user.groupVerified === true;
+  const groupVerifiedAt = Number(user.groupVerifiedAt || 0);
+  const isGroupVerified = isAdmin || (
+    user.groupVerified === true
+    && groupVerifiedAt > 0
+    && Date.now() - groupVerifiedAt <= GROUP_VERIFY_TTL
+  );
   const needsGroupVerify = !isDisabled && !isGroupVerified;
   const message = isDisabled
     ? (user.disabledReason || '账号已被管理员禁用')

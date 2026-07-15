@@ -588,6 +588,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/home' && req.method === 'GET') {
+      const data = readData();
+      const user = requireActiveUser(req, data);
+      ok(res, {
+        user: publicUser(user),
+        squads: data.squads.map((squad) => publicSquad(squad, user.openid))
+      });
+      return;
+    }
+
     if (pathname === '/api/auth/guest-login' && req.method === 'POST') {
       checkRateLimit(req, 'guest-login', 10, 60 * 1000);
       if (!allowGuestLogin) throw Object.assign(new Error('访客登录未开放'), { status: 403 });
