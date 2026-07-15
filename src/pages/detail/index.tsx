@@ -174,7 +174,7 @@ const DetailPage: React.FC = () => {
       Taro.showToast({ title: '车队已有成员，不支持修改信息', icon: 'none' });
       return;
     }
-    Taro.navigateTo({ url: `/pages/create/index?editId=${squad.id}` });
+    Taro.redirectTo({ url: `/pages/create/index?editId=${squad.id}` });
   };
 
   return (
