@@ -11,6 +11,7 @@ interface ApiResponse<T> {
 
 interface RequestOptions {
   skipAuth?: boolean;
+  showLoading?: boolean;
 }
 
 const TOKEN_KEY = 'gangwa_auth_token';
@@ -40,7 +41,8 @@ const getRequestErrorLog = (error: unknown) => ({
 export const request = async <T>(path: string, method: RequestMethod = 'GET', data?: unknown, options: RequestOptions = {}): Promise<T> => {
   const url = `${API_BASE_URL}${path}`;
   const token = Taro.getStorageSync<string>(TOKEN_KEY);
-  showRequestLoading();
+  const shouldShowLoading = options.showLoading !== false;
+  if (shouldShowLoading) showRequestLoading();
   try {
     const response = await Taro.request<ApiResponse<T>>({
       url,
@@ -62,6 +64,6 @@ export const request = async <T>(path: string, method: RequestMethod = 'GET', da
     console.error('[Request] failed', { url, method, ...getRequestErrorLog(error) });
     throw new Error(message);
   } finally {
-    hideRequestLoading();
+    if (shouldShowLoading) hideRequestLoading();
   }
 };
