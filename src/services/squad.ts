@@ -84,6 +84,30 @@ export const createSquad = (input: CreateSquadInput): Squad => {
   return squad;
 };
 
+export const updateSquad = (squadId: number, input: CreateSquadInput): Squad => {
+  const user = getCurrentUser();
+  const squads = getSquads();
+  const squad = squads.find((item) => item.id === squadId);
+  if (!squad) throw new Error('车队不存在');
+  if (squad.creatorOpenid !== user.openid) throw new Error('只有队长可以修改车队信息');
+  if (squad.passengers.some((passenger) => passenger.openid !== user.openid)) {
+    throw new Error('车队已有成员，不支持修改信息');
+  }
+
+  const nextSquad = normalizeSquad({
+    ...squad,
+    title: input.title,
+    departDate: input.departDate,
+    departTime: input.departTime,
+    capacity: input.capacity,
+    note: input.note,
+    tags: input.tags
+  });
+  persist(squads.map((item) => (item.id === squadId ? nextSquad : item)));
+  console.info('[Squad] update squad', { squadId });
+  return nextSquad;
+};
+
 export interface JoinSquadInput {
   role: string;
   note?: string;

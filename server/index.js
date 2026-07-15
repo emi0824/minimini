@@ -793,6 +793,37 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (squadMatch && req.method === 'PUT') {
+      checkRateLimit(req, 'write', 30, 60 * 1000);
+      const body = await parseBody(req);
+      const squadTitle = text(body.title, '车队名称', 30);
+      const squadDepartDate = departDate(body.departDate);
+      const squadDepartTime = departTime(body.departTime);
+      const squadCapacity = capacity(body.capacity || 5);
+      const squadNote = text(body.note || '无备注', '备注', 120, { required: false }) || '无备注';
+      const squadTags = tags(body.tags);
+      const { squad, viewerOpenid } = await withWriteLock((data) => {
+        const user = requireActiveUser(req, data);
+        const nextSquad = findSquad(data, Number(squadMatch[1]));
+        if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
+        if (nextSquad.creatorOpenid !== user.openid) throw Object.assign(new Error('只有队长可以修改车队信息'), { status: 403 });
+        if (nextSquad.passengers.some((passenger) => passenger.openid !== user.openid)) {
+          throw Object.assign(new Error('车队已有成员，不支持修改信息'), { status: 400 });
+        }
+        Object.assign(nextSquad, {
+          title: squadTitle,
+          departDate: squadDepartDate,
+          departTime: squadDepartTime,
+          capacity: squadCapacity,
+          note: squadNote,
+          tags: squadTags
+        });
+        return { squad: normalizeSquad(nextSquad), viewerOpenid: user.openid };
+      });
+      ok(res, publicSquad(squad, viewerOpenid));
+      return;
+    }
+
     if (squadMatch && req.method === 'DELETE') {
       checkRateLimit(req, 'write', 30, 60 * 1000);
       const { dismissedSquad, dataSnapshot, userOpenid } = await withWriteLock((data) => {
