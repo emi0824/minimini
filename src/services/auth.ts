@@ -28,11 +28,12 @@ const saveSession = ({ token, user }: LoginResponse) => {
 
 export const getCurrentUser = (): UserProfile => {
   const cached = Taro.getStorageSync<UserProfile>(USER_KEY);
-  if (cached?.openid) return cached;
+  if (cached?.openid) return { ...cached, gameId: cached.gameId || '' };
 
   const user: UserProfile = {
     openid: createGuestOpenid(),
     nickname: '未命名成员',
+    gameId: '',
     joinedSquadIds: [],
     createdSquadIds: []
   };
@@ -70,7 +71,7 @@ export const ensureAuthenticatedUser = async (nickname?: string): Promise<UserPr
 
   const confirmResult = await Taro.showModal({
     title: '授权微信身份',
-    content: '保存昵称需要授权获取微信身份，用于绑定 openid 并保护你的车队操作。',
+    content: '保存资料需要授权获取微信身份，用于绑定 openid 并保护你的车队操作。',
     confirmText: '授权保存',
     cancelText: '暂不保存'
   });
@@ -81,9 +82,13 @@ export const ensureAuthenticatedUser = async (nickname?: string): Promise<UserPr
 };
 
 export const updateNickname = (nickname: string): UserProfile => {
+  return updateProfile({ nickname });
+};
+
+export const updateProfile = ({ nickname, gameId }: { nickname: string; gameId?: string }): UserProfile => {
   const user = getCurrentUser();
-  const nextUser = { ...user, nickname };
+  const nextUser = { ...user, nickname, gameId: gameId == null ? user.gameId || '' : gameId.trim() };
   Taro.setStorageSync(USER_KEY, nextUser);
-  console.info('[Auth] update nickname');
+  console.info('[Auth] update profile');
   return nextUser;
 };

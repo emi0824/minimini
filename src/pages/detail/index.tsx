@@ -1,13 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input, Textarea } from '@tarojs/components';
 import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
+import shareCardImage from '@/assets/share-card.jpg';
+import shareCommonImage from '@/assets/share-common.jpg';
 import StatusPill from '@/components/StatusPill';
 import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
-import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updateNicknameApi, updatePassengerInfoApi } from '@/services/squadApi';
-import { requestSquadStatusChangeSubscribe } from '@/services/subscription';
+import { dismissSquadApi, getSquadByIdApi, joinSquadApi, leaveSquadApi, updatePassengerInfoApi } from '@/services/squadApi';
+import { requestJoinSquadSubscribe } from '@/services/subscription';
 import { cacheCurrentShareTicket, ensureAuthorizedOrRedirect, getAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { markPagesNeedRefresh } from '@/hooks/useFocusRefresh';
 import { Squad } from '@/types/squad';
+import { formatMonthDay } from '@/utils/date';
+import { formatSquadStatusText } from '@/utils/squadText';
 import styles from './index.module.scss';
 
 const DetailPage: React.FC = () => {
@@ -19,10 +23,13 @@ const DetailPage: React.FC = () => {
   const shareSquadRef = useRef<Squad | undefined>();
   const user = getCurrentUser();
   const [nickname, setNickname] = useState(user.nickname === '未命名成员' ? '' : user.nickname);
-  const [role, setRole] = useState('补位');
+  const [gameId, setGameId] = useState(user.gameId || '');
+  const [role, setRole] = useState('');
   const [note, setNote] = useState('');
   const [isEditingMyInfo, setIsEditingMyInfo] = useState(false);
   const [myNickname, setMyNickname] = useState(user.nickname === '未命名成员' ? '' : user.nickname);
+  const [myGameId, setMyGameId] = useState(user.gameId || '');
+  const [myRole, setMyRole] = useState('');
   const [myNote, setMyNote] = useState('');
 
   useLoad((options) => {
@@ -82,14 +89,14 @@ const DetailPage: React.FC = () => {
       return {
         title: shareSquad ? `${shareSquad.departTime} ${shareSquad.title}` : '港瓦夕阳红车队集合',
         path: `/pages/detail/index?id=${shareSquad?.id || squadId}`,
-        imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+        imageUrl: shareCardImage
       };
     }
 
     return {
       title: '港瓦夕阳红车队集合',
       path: '/pages/index/index',
-      imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+      imageUrl: shareCommonImage
     };
   });
 
@@ -109,7 +116,7 @@ const DetailPage: React.FC = () => {
   const isJoined = Boolean(squad.isJoined) || squad.passengers.some((item) => item.openid === user.openid);
   const myPassenger = squad.passengers.find((item) => item.isSelf || item.openid === user.openid);
   const hasJoinedMembers = squad.passengers.length > 1;
-  const restSlots = Math.max(squad.capacity - squad.passengers.length, 0);
+  const isDeparted = squad.status === 'departed';
   const forceRefresh = () => setVersion((value) => value + 1);
 
   const handleJoin = async () => {
@@ -120,11 +127,36 @@ const DetailPage: React.FC = () => {
         Taro.showToast({ title: '请先填写昵称', icon: 'none' });
         return;
       }
-      await requestSquadStatusChangeSubscribe();
-      await updateNicknameApi(finalNickname);
-      await joinSquadApi(squad.id, { role: role.trim() || '补位', note: note.trim() });
+      const finalGameId = gameId.trim();
+      if (!finalGameId) {
+        Taro.showToast({ title: '请填写游戏ID', icon: 'none' });
+        return;
+      }
+      const subscriptionResult = await requestJoinSquadSubscribe();
+      await joinSquadApi(squad.id, {
+        nickname: finalNickname,
+        gameId: finalGameId,
+        role: role.trim(),
+        note: note.trim(),
+        subscriptionTemplateIds: subscriptionResult.accepted
+      });
       setNickname(finalNickname);
-      Taro.showToast({ title: '已加入车队', icon: 'success' });
+      setGameId(finalGameId);
+      if (subscriptionResult.accepted.length > 0) {
+        Taro.showToast({ title: '已加入并订阅一次提醒', icon: 'success' });
+      } else {
+        try {
+          await Taro.showModal({
+            title: '已加入车队',
+            content: '你未授权消息提醒，将无法收到本车队的发车前提醒。',
+            showCancel: false,
+            confirmText: '知道了'
+          });
+        } catch (error) {
+          console.warn('[Detail] subscription notice skipped', error);
+          Taro.showToast({ title: '已加入，未开启发车提醒', icon: 'none' });
+        }
+      }
       forceRefresh();
     } catch (error) {
       console.error('[Detail] join failed', error);
@@ -134,8 +166,8 @@ const DetailPage: React.FC = () => {
 
   const handleLeave = () => {
     Taro.showModal({
-      title: '退出车队',
-      content: '只有你本人可以退出自己的座位。',
+      title: '确认退出车队',
+      content: '请在微信群内通知车队成员后再退出，以免影响其他成员组队。',
       confirmText: '确认退出',
       success: async (res) => {
         if (!res.confirm) return;
@@ -155,9 +187,9 @@ const DetailPage: React.FC = () => {
 
   const handleDismiss = () => {
     Taro.showModal({
-      title: '解散车队',
-      content: '仅发起人可解散车队。确认解散？',
-      confirmText: '解散',
+      title: '确认解散车队',
+      content: '解散车队前，请在微信群内通知车队成员，以免影响其他成员组队。',
+      confirmText: '确认解散',
       success: async (res) => {
         if (!res.confirm) return;
         try {
@@ -174,6 +206,10 @@ const DetailPage: React.FC = () => {
   };
 
   const handleEdit = () => {
+    if (isDeparted) {
+      Taro.showToast({ title: '已发车车队不支持修改', icon: 'none' });
+      return;
+    }
     if (hasJoinedMembers) {
       Taro.showToast({ title: '车队已有成员，不支持修改信息', icon: 'none' });
       return;
@@ -181,8 +217,20 @@ const DetailPage: React.FC = () => {
     Taro.redirectTo({ url: `/pages/create/index?editId=${squad.id}` });
   };
 
+  const handleCopySquad = async () => {
+    try {
+      await Taro.setClipboardData({ data: formatSquadStatusText(squad) });
+      Taro.showToast({ title: '车况已复制', icon: 'success' });
+    } catch (error) {
+      console.error('[Detail] copy squad failed', error);
+      Taro.showToast({ title: '复制失败，请重试', icon: 'none' });
+    }
+  };
+
   const handleOpenMyInfo = () => {
     setMyNickname(getCurrentUser().nickname === '未命名成员' ? '' : getCurrentUser().nickname);
+    setMyGameId(getCurrentUser().gameId || myPassenger?.gameId || '');
+    setMyRole(myPassenger?.role || '');
     setMyNote(myPassenger?.note || '');
     setIsEditingMyInfo(true);
   };
@@ -193,13 +241,27 @@ const DetailPage: React.FC = () => {
       Taro.showToast({ title: '请填写昵称', icon: 'none' });
       return;
     }
+    const finalGameId = myGameId.trim();
+    if (!finalGameId) {
+      Taro.showToast({ title: '请填写游戏ID', icon: 'none' });
+      return;
+    }
 
     try {
-      const result = await updatePassengerInfoApi(squad.id, { nickname: finalNickname, note: myNote.trim() });
+      const confirmResult = await Taro.showModal({
+        title: '确认修改信息',
+        content: '请确认以上修改车队成员已知悉，以免影响其他成员组队。',
+        cancelText: '取消',
+        confirmText: '确认修改'
+      });
+      if (!confirmResult.confirm) return;
+      const result = await updatePassengerInfoApi(squad.id, { nickname: finalNickname, gameId: finalGameId, role: myRole.trim(), note: myNote.trim() });
       shareSquadRef.current = result.squad;
       setSquad(result.squad);
       setNickname(result.user.nickname);
+      setGameId(result.user.gameId || '');
       setMyNickname(result.user.nickname);
+      setMyGameId(result.user.gameId || '');
       setIsEditingMyInfo(false);
       markPagesNeedRefresh();
       Taro.showToast({ title: '上车信息已更新', icon: 'success' });
@@ -211,9 +273,10 @@ const DetailPage: React.FC = () => {
 
   return (
     <View className={styles.page} data-version={version}>
+      <View className={styles.notice}>请准时上线并使用OOPZ语音，下车/迟到/解散等特殊情况请提前在微信群通知车队成员。</View>
       <View className={styles.headerCard}>
         <View className={styles.headerTop}>
-          <View>
+          <View className={styles.headerMain}>
             <Text className={styles.title}>{squad.title}</Text>
             <View className={styles.tagRow}>
               {squad.tags.map((tag) => (
@@ -223,36 +286,83 @@ const DetailPage: React.FC = () => {
           </View>
           <StatusPill status={squad.status} />
         </View>
-        <Text className={styles.time}>{squad.departTime}</Text>
-        <Text className={styles.meta}>发起人 / {squad.creatorName}</Text>
+        <View className={styles.departSchedule}>
+          <Text className={styles.departDate}>{formatMonthDay(squad.departDate)}</Text>
+          <Text className={styles.time}>{squad.departTime}</Text>
+        </View>
+        <Text className={styles.meta}>发起人 / {squad.creatorName}{squad.creatorGameId ? `（${squad.creatorGameId}）` : ''}</Text>
         <Text className={styles.note}>{squad.note}</Text>
         <View className={styles.capacityLine}>
+          <Text className={styles.capacityLabel}>当前人数</Text>
           <Text className={styles.capacityText}>{squad.passengers.length}/{squad.capacity}</Text>
-          <Text className={styles.restText}>{restSlots > 0 ? `差 ${restSlots} 人集结` : '已满员 · 准备开战'}</Text>
         </View>
       </View>
 
-      {!isJoined && squad.status !== 'ready' && (
-        <View className={styles.headerCard}>
-          <Text className={styles.sectionTitle}>上车信息</Text>
-          <Input className={styles.joinInput} placeholder='你的游戏昵称' value={nickname} onInput={(event) => setNickname(String(event.detail.value))} />
-          <Input className={styles.joinInput} placeholder='位置/角色，例如 补位' value={role} onInput={(event) => setRole(String(event.detail.value))} />
-          <Textarea className={styles.joinTextarea} placeholder='备注，例如 21:40 到' value={note} onInput={(event) => setNote(String(event.detail.value))} />
-        </View>
+      <View className={styles.shareActions}>
+        <Button className={styles.quickActionButton} onClick={handleCopySquad}>
+          <Text className={styles.copyIcon}>▣</Text>
+          <Text>复制车况</Text>
+        </Button>
+        <Button className={styles.quickActionButton} openType='share'>
+          <Text className={styles.shareIcon}>↗</Text>
+          <Text>分享车队</Text>
+        </Button>
+      </View>
+
+      {!isJoined && !isDeparted && (
+        <>
+          <View className={styles.headerCard}>
+            <Text className={styles.sectionTitle}>上车信息</Text>
+            <View className={styles.inputGrid}>
+              <View className={styles.inputField}>
+                <Text className={styles.inputLabel}>称呼<Text className={styles.requiredMark}>*</Text></Text>
+                <Input className={styles.joinInput} maxlength={20} placeholder='填写称呼' value={nickname} onInput={(event) => setNickname(String(event.detail.value))} />
+              </View>
+              <View className={styles.inputField}>
+                <Text className={styles.inputLabel}>游戏ID<Text className={styles.requiredMark}>*</Text></Text>
+                <Input className={styles.joinInput} maxlength={40} placeholder='填写游戏ID' value={gameId} onInput={(event) => setGameId(String(event.detail.value))} />
+              </View>
+            </View>
+            <View className={styles.inputField}>
+              <Text className={styles.inputLabel}>位置/角色（选填）</Text>
+              <Input className={styles.joinInput} placeholder='填写位置或角色' value={role} onInput={(event) => setRole(String(event.detail.value))} />
+            </View>
+            <View className={styles.inputField}>
+              <Text className={styles.inputLabel}>备注（选填）</Text>
+              <Textarea className={styles.joinTextarea} maxlength={80} placeholder='填写特殊情况，若不确定是否能上车或不确定时间请在此说明，默认已确认且能够准时上车的成员优先' value={note} onInput={(event) => setNote(String(event.detail.value))} />
+            </View>
+          </View>
+          <View className={styles.actionStackSingle}>
+            <Button className={styles.primaryButton} onClick={handleJoin}>加入车队</Button>
+          </View>
+        </>
       )}
 
-      <View className={styles.sectionTitle}>成员名单</View>
+      <View className={`${styles.sectionTitle} ${styles.membersTitle}`}>成员名单</View>
       <View className={styles.crewCard}>
-        {Array.from({ length: squad.capacity }).map((_, index) => {
+        {Array.from({ length: Math.max(squad.capacity, squad.passengers.length) }).map((_, index) => {
           const passenger = squad.passengers[index];
+          const visibleRole = passenger?.role === '补位' ? '' : passenger?.role;
+          const passengerMeta = [visibleRole, passenger?.note].filter(Boolean).join(' · ');
+          const canEditPassenger = Boolean(passenger)
+            && (passenger?.isSelf || passenger?.openid === user.openid)
+            && !isDeparted
+            && !isEditingMyInfo;
           return (
             <View className={passenger ? styles.crewItem : styles.crewEmpty} key={index}>
               <Text className={styles.crewNo}>{String(index + 1).padStart(2, '0')}</Text>
               <View className={styles.crewInfo}>
-                <Text className={styles.crewName}>{passenger ? passenger.nickname : '-- 空位 --'}</Text>
-                <Text className={styles.crewRole}>{passenger ? `${passenger.role}${passenger.note ? ` · ${passenger.note}` : ''}` : '等待上车'}</Text>
+                <View className={styles.crewNameRow}>
+                  <Text className={styles.crewName}>{passenger ? `${passenger.nickname}${passenger.gameId ? `（${passenger.gameId}）` : ''}` : '-- 空位 --'}</Text>
+                </View>
+                <Text className={styles.crewRole}>{passenger ? passengerMeta || '已上车' : '等待上车'}</Text>
               </View>
-              {passenger?.isLeader && <Text className={styles.leaderTag}>队长</Text>}
+              {canEditPassenger && (
+                <Button className={styles.editMyInfoButton} onClick={handleOpenMyInfo}>
+                  <Text className={styles.editIcon}>✎</Text>
+                  <Text>编辑</Text>
+                </Button>
+              )}
             </View>
           );
         })}
@@ -262,8 +372,24 @@ const DetailPage: React.FC = () => {
         <View className={styles.myInfoCard}>
           <Text className={styles.sectionTitle}>编辑我的上车信息</Text>
           <Text className={styles.formHint}>昵称为全局资料，保存后会同步更新到所有页面和车队。</Text>
-          <Input className={styles.joinInput} maxlength={20} placeholder='你的游戏昵称' value={myNickname} onInput={(event) => setMyNickname(String(event.detail.value))} />
-          <Textarea className={styles.joinTextarea} maxlength={80} placeholder='备注，例如 21:40 到' value={myNote} onInput={(event) => setMyNote(String(event.detail.value))} />
+          <View className={styles.inputGrid}>
+            <View className={styles.inputField}>
+              <Text className={styles.inputLabel}>称呼<Text className={styles.requiredMark}>*</Text></Text>
+              <Input className={styles.joinInput} maxlength={20} placeholder='填写称呼' value={myNickname} onInput={(event) => setMyNickname(String(event.detail.value))} />
+            </View>
+            <View className={styles.inputField}>
+              <Text className={styles.inputLabel}>游戏ID<Text className={styles.requiredMark}>*</Text></Text>
+              <Input className={styles.joinInput} maxlength={40} placeholder='填写游戏ID' value={myGameId} onInput={(event) => setMyGameId(String(event.detail.value))} />
+            </View>
+          </View>
+          <View className={styles.inputField}>
+            <Text className={styles.inputLabel}>位置/角色（选填）</Text>
+            <Input className={styles.joinInput} maxlength={16} placeholder='填写位置或角色' value={myRole} onInput={(event) => setMyRole(String(event.detail.value))} />
+          </View>
+          <View className={styles.inputField}>
+            <Text className={styles.inputLabel}>备注（选填）</Text>
+            <Textarea className={styles.joinTextarea} maxlength={80} placeholder='填写备注' value={myNote} onInput={(event) => setMyNote(String(event.detail.value))} />
+          </View>
           <View className={styles.formActions}>
             <Button className={styles.primaryButton} onClick={handleSaveMyInfo}>保存修改</Button>
             <Button className={styles.secondaryButton} onClick={() => setIsEditingMyInfo(false)}>取消</Button>
@@ -271,22 +397,23 @@ const DetailPage: React.FC = () => {
         </View>
       )}
 
-      <View className={styles.actionStack}>
-        {!isJoined && squad.status !== 'ready' && <Button className={styles.primaryButton} onClick={handleJoin}>加入车队</Button>}
-        {isJoined && !isEditingMyInfo && <Button className={styles.secondaryButton} onClick={handleOpenMyInfo}>编辑我的上车信息</Button>}
-        {isCreator && (
+      {isCreator && (
+        <View className={isDeparted ? styles.actionStackSingle : styles.actionStack}>
+          {!isDeparted && <Button className={styles.dangerGhostButton} onClick={handleDismiss}>解散车队</Button>}
           <Button
-            className={`${styles.editButton} ${hasJoinedMembers ? styles.editButtonDisabled : ''}`}
-            data-disabled={hasJoinedMembers}
+            className={`${styles.editButton} ${hasJoinedMembers || isDeparted ? styles.editButtonDisabled : ''}`}
+            data-disabled={hasJoinedMembers || isDeparted}
             onClick={handleEdit}
           >
             编辑车队信息
           </Button>
-        )}
-        <Button className={styles.secondaryButton} openType='share'>分享车队</Button>
-        {isJoined && !isCreator && <Button className={styles.dangerButton} onClick={handleLeave}>退出我的座位</Button>}
-        {isCreator && <Button className={styles.dangerGhostButton} onClick={handleDismiss}>解散车队</Button>}
-      </View>
+        </View>
+      )}
+      {isJoined && !isCreator && !isDeparted && (
+        <View className={styles.actionStackSingle}>
+          <Button className={styles.dangerButton} onClick={handleLeave}>退出我的座位</Button>
+        </View>
+      )}
     </View>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button } from '@tarojs/components';
 import Taro, { useLoad, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
+import shareCommonImage from '@/assets/share-common.jpg';
 import SquadCard from '@/components/SquadCard';
 import MinePage from '@/pages/mine';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
@@ -8,15 +9,12 @@ import { getHomeApi } from '@/services/squadApi';
 import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
 import { cacheCurrentShareTicket, getAccessState, getCachedAccessState, verifyWechatGroupAccess } from '@/services/accessControl';
 import { Squad } from '@/types/squad';
+import { sortSquadsSmart } from '@/utils/squad';
 import styles from './index.module.scss';
 
 type DateFilter = 'all' | 'today' | 'tomorrow';
 const BEIJING_OFFSET = 8 * 60 * 60 * 1000;
 const getBeijingDate = (offsetDays = 0) => new Date(Date.now() + BEIJING_OFFSET + offsetDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-const sortSquadsByDepartTime = (items: Squad[]) => (
-  [...items].sort((left, right) => `${left.departDate || ''} ${left.departTime}`.localeCompare(`${right.departDate || ''} ${right.departTime}`))
-);
 
 type AccessViewStatus = 'checking' | 'allowed' | 'needAuth' | 'needGroup' | 'disabled';
 type HomeTab = 'lobby' | 'mine';
@@ -38,7 +36,7 @@ const getCachedHomeSquads = () => {
   const cached = Taro.getStorageSync<HomeSquadCache>(getHomeCacheKey(user.openid));
   if (!cached || cached.openid !== user.openid || !Array.isArray(cached.squads)) return [];
   if (Date.now() - Number(cached.cachedAt || 0) > HOME_CACHE_TTL) return [];
-  return sortSquadsByDepartTime(cached.squads);
+  return sortSquadsSmart(cached.squads);
 };
 
 const saveHomeSquads = (squads: Squad[]) => {
@@ -58,7 +56,6 @@ const IndexPage: React.FC = () => {
   const [hasOpenedMine, setHasOpenedMine] = useState(startsOnMine);
   const [mineRefreshSignal, setMineRefreshSignal] = useState(0);
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
-  const [showAvailableOnly, setShowAvailableOnly] = useState(false);
   const { version } = useFocusRefresh();
   const [squads, setSquads] = useState<Squad[]>(getCachedHomeSquads);
   const [homeRefreshing, setHomeRefreshing] = useState(() => {
@@ -82,7 +79,7 @@ const IndexPage: React.FC = () => {
   useShareAppMessage(() => ({
     title: '港瓦夕阳红车队集合',
     path: '/pages/index/index',
-    imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+    imageUrl: shareCommonImage
   }));
   const accessStatusRef = useRef(accessStatus);
   const loadSeqRef = useRef(0);
@@ -99,7 +96,7 @@ const IndexPage: React.FC = () => {
   const loadHome = async (isLatestLoad: () => boolean) => {
     const result = await getHomeApi();
     if (!isLatestLoad()) return;
-    const items = sortSquadsByDepartTime(result.squads);
+    const items = sortSquadsSmart(result.squads);
     setSquads(items);
     saveHomeSquads(items);
     setAccessStatus('allowed');
@@ -211,13 +208,12 @@ const IndexPage: React.FC = () => {
   const canUseLobby = accessStatus === 'allowed';
   const today = getBeijingDate();
   const tomorrow = getBeijingDate(1);
-  const visibleSquads = squads.filter((item) => {
+  const visibleSquads = sortSquadsSmart(squads.filter((item) => {
     const matchesDate = dateFilter === 'all'
       || (dateFilter === 'today' && item.departDate === today)
       || (dateFilter === 'tomorrow' && item.departDate === tomorrow);
-    const matchesAvailable = !showAvailableOnly || (item.passengers.length < item.capacity && item.status !== 'ready');
-    return matchesDate && matchesAvailable;
-  });
+    return matchesDate;
+  }));
   const accessTitle = accessStatus === 'checking'
     ? '正在验证访问权限'
     : accessStatus === 'disabled'
@@ -253,17 +249,19 @@ const IndexPage: React.FC = () => {
   return (
     <View className={styles.page} data-version={version}>
       <View className={activeTab === 'lobby' ? styles.tabPaneActive : styles.tabPaneHidden}>
+        <View className={styles.notice}>请准时上线并使用OOPZ语音，下车/迟到/解散等特殊情况请提前在微信群通知车队成员。</View>
+
         <View className={styles.hero}>
           <View className={styles.heroGrid} />
-          <Text className={styles.eyebrow}>今日车队调度</Text>
+          <Text className={styles.eyebrow}>近期车队概览</Text>
           <View className={styles.titleRow}>
             <Text className={styles.title}>港瓦夕阳红</Text>
-            <View className={styles.heroStat}>
-              <Text className={styles.statValue}>{canUseLobby ? squads.length : '--'}</Text>
-              <Text className={styles.statLabel}>已有车队</Text>
-            </View>
+            <Text className={styles.statValue}>{canUseLobby ? squads.length : '--'}</Text>
           </View>
-          <Text className={styles.subtitle}>好友活动时间协调</Text>
+          <View className={styles.subtitleRow}>
+            <Text className={styles.subtitle}>预约上车组队大厅</Text>
+            <Text className={styles.statLabel}>已有车队</Text>
+          </View>
         </View>
 
         <View className={canUseLobby ? styles.lobbyContent : styles.lobbyContentHidden}>
@@ -284,10 +282,6 @@ const IndexPage: React.FC = () => {
                 <Text>明日</Text>
               </View>
             </View>
-            <View className={showAvailableOnly ? styles.filterButtonActive : styles.filterButton} onClick={() => setShowAvailableOnly((value) => !value)}>
-              <Text className={showAvailableOnly ? styles.filterCheckActive : styles.filterCheck}>{showAvailableOnly ? '✓' : ''}</Text>
-              <Text>未满员</Text>
-            </View>
           </View>
 
           <View className={styles.list}>
@@ -295,7 +289,7 @@ const IndexPage: React.FC = () => {
             {visibleSquads.map((squad) => (
               <SquadCard squad={squad} key={squad.id} />
             ))}
-            {!homeRefreshing && visibleSquads.length === 0 && <Text className={styles.sectionDesc}>{squads.length === 0 ? '暂无车队，快来创建第一辆。' : '暂无未满员车队。'}</Text>}
+            {!homeRefreshing && visibleSquads.length === 0 && <Text className={styles.sectionDesc}>{squads.length === 0 ? '暂无车队，快来创建第一辆。' : '当前日期暂无车队。'}</Text>}
           </View>
         </View>
 

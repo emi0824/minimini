@@ -1,16 +1,16 @@
 import { isRemoteApiEnabled } from '@/config/api';
-import { bindWechatUserWithNickname, getCurrentUser, saveUserProfile, updateNickname } from '@/services/auth';
+import { bindWechatUserWithNickname, getCurrentUser, saveUserProfile, updateNickname, updateProfile } from '@/services/auth';
 import { ensureActiveAccess } from '@/services/accessControl';
 import {
   createSquad,
   CreateSquadInput,
   dismissSquad,
   getSquadById,
+  getNearbySquads,
   getSquads,
   joinSquad,
   JoinSquadInput,
   leaveSquad,
-  resetSquads,
   syncNicknameInSquads,
   UpdatePassengerInfoInput,
   updatePassengerInfo,
@@ -21,10 +21,12 @@ import {
   dismissRemoteSquad,
   getRemoteSquadById,
   getRemoteHome,
+  getRemoteNearbySquads,
   getRemoteSquads,
   joinRemoteSquad,
   leaveRemoteSquad,
   updateRemotePassengerInfo,
+  updateRemoteProfile,
   updateRemoteNickname,
   updateRemoteSquad
 } from '@/services/remoteSquad';
@@ -58,6 +60,16 @@ export const updateNicknameApi = async (nickname: string): Promise<UserProfile> 
   return user;
 };
 
+export const updateProfileApi = async (nickname: string, gameId: string): Promise<UserProfile> => {
+  if (isRemoteApiEnabled()) {
+    await bindWechatUserWithNickname(nickname);
+    return saveUserProfile(await updateRemoteProfile(nickname, gameId));
+  }
+  const user = updateProfile({ nickname, gameId });
+  syncNicknameInSquads(user.openid, nickname, gameId);
+  return user;
+};
+
 export const getSquadsApi = async (): Promise<Squad[]> => {
   if (isRemoteApiEnabled()) return getRemoteSquads();
   return getSquads();
@@ -68,10 +80,14 @@ export const getSquadByIdApi = async (id: number): Promise<Squad | undefined> =>
   return getSquadById(id);
 };
 
+export const getNearbySquadsApi = async (departDate: string, departTime: string, excludeId = 0): Promise<Squad[]> => {
+  if (isRemoteApiEnabled()) return getRemoteNearbySquads(departDate, departTime, excludeId);
+  return getNearbySquads(departDate, departTime, excludeId);
+};
+
 export const createSquadApi = async (input: CreateSquadInput): Promise<Squad> => {
   if (isRemoteApiEnabled()) {
-    const state = await ensureActiveAccess();
-    if (state.user.nickname && state.user.nickname !== '未命名成员') await updateRemoteNickname(state.user.nickname);
+    await ensureActiveAccess();
     return createRemoteSquad(input);
   }
   return createSquad(input);
@@ -87,10 +103,11 @@ export const updateSquadApi = async (squadId: number, input: CreateSquadInput): 
 
 export const joinSquadApi = async (squadId: number, input: JoinSquadInput): Promise<Squad> => {
   if (isRemoteApiEnabled()) {
-    const state = await ensureActiveAccess();
-    if (state.user.nickname && state.user.nickname !== '未命名成员') await updateRemoteNickname(state.user.nickname);
+    await ensureActiveAccess();
     return joinRemoteSquad(squadId, input);
   }
+  const user = updateProfile({ nickname: input.nickname.trim(), gameId: input.gameId.trim() });
+  syncNicknameInSquads(user.openid, user.nickname, user.gameId);
   return joinSquad(squadId, input);
 };
 
@@ -108,9 +125,9 @@ export const updatePassengerInfoApi = async (squadId: number, input: UpdatePasse
     return { ...result, user: saveUserProfile(result.user) };
   }
 
-  const user = updateNickname(input.nickname.trim());
-  syncNicknameInSquads(user.openid, user.nickname);
-  return { user, squad: updatePassengerInfo(squadId, input.note) };
+  const user = updateProfile({ nickname: input.nickname.trim(), gameId: input.gameId.trim() });
+  syncNicknameInSquads(user.openid, user.nickname, user.gameId);
+  return { user, squad: updatePassengerInfo(squadId, input) };
 };
 
 export const dismissSquadApi = async (squadId: number): Promise<void> => {
@@ -119,8 +136,4 @@ export const dismissSquadApi = async (squadId: number): Promise<void> => {
     return dismissRemoteSquad(squadId);
   }
   return dismissSquad(squadId);
-};
-
-export const resetSquadsApi = async (): Promise<void> => {
-  if (!isRemoteApiEnabled()) resetSquads();
 };

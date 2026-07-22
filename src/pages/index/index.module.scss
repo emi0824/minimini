@@ -4,7 +4,7 @@
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
-  padding: 32rpx $page-padding 148rpx;
+  padding: 24rpx $page-padding 136rpx;
   background-color: $color-bg-page;
   background:
     radial-gradient(circle at 85% 0%, rgba(255, 70, 85, 0.18), transparent 34%),
@@ -22,8 +22,8 @@
 .hero {
   position: relative;
   width: 100%;
-  min-height: 240rpx;
-  padding: 30rpx 28rpx 28rpx;
+  min-height: 194rpx;
+  padding: 24rpx;
   overflow: hidden;
   border: 1rpx solid $color-border;
   background: linear-gradient(145deg, #172331, $color-bg-page);
@@ -54,6 +54,7 @@
 
 .eyebrow,
 .titleRow,
+.subtitleRow,
 .title,
 .subtitle {
   position: relative;
@@ -69,9 +70,19 @@
 }
 
 .titleRow {
-  margin-top: 14rpx;
+  margin-top: 10rpx;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.subtitleRow {
+  position: relative;
+  z-index: 1;
+  margin-top: 8rpx;
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 24rpx;
 }
@@ -87,32 +98,28 @@
 
 .subtitle {
   display: block;
-  margin-top: 8rpx;
+  flex: 1;
   color: $color-text-tertiary;
   font-size: 22rpx;
   font-weight: $font-weight-bold;
   letter-spacing: 5rpx;
 }
 
-.heroStat {
-  min-width: 112rpx;
-}
-
 .statValue,
 .statLabel {
   display: block;
+  min-width: 112rpx;
   text-align: center;
 }
 
 .statValue {
   color: $color-primary;
-  font-size: 30rpx;
-  font-weight: $font-weight-bold;
-  line-height: 1.15;
+  font-size: 46rpx;
+  font-weight: 800;
+  line-height: 1.08;
 }
 
 .statLabel {
-  margin-top: 6rpx;
   color: $color-text-tertiary;
   font-size: 22rpx;
 }
@@ -127,17 +134,28 @@
   pointer-events: none;
 }
 
+.notice {
+  margin-bottom: 18rpx;
+  padding: 14rpx 18rpx;
+  color: $color-text-primary;
+  font-size: 22rpx;
+  font-weight: $font-weight-bold;
+  line-height: 1.45;
+  border: 1rpx solid rgba(255, 70, 85, 0.44);
+  background: rgba(255, 70, 85, 0.1);
+}
+
 .commandPanel {
   display: flex;
   flex-wrap: wrap;
   gap: 16rpx;
-  margin-top: 28rpx;
+  margin-top: 16rpx;
 }
 
 .primaryAction,
 .secondaryAction {
   @include button-reset;
-  height: 88rpx;
+  height: 76rpx;
   flex: 1;
   font-size: 28rpx;
   font-weight: $font-weight-bold;
@@ -187,9 +205,10 @@
 }
 
 .filterPanel {
-  margin: 28rpx 0 20rpx;
+  margin: 18rpx 0 12rpx;
   padding: 8rpx;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
@@ -199,6 +218,7 @@
 
 .dateFilterGroup {
   flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6rpx;
@@ -226,6 +246,7 @@
 
 .filterButton,
 .filterButtonActive {
+  flex-shrink: 0;
   min-height: 52rpx;
   padding: 0 14rpx;
   display: flex;
@@ -242,6 +263,50 @@
   color: $color-text-primary;
   border-color: rgba(255, 70, 85, 0.38);
   background: rgba(255, 70, 85, 0.12);
+}
+
+.sortPanel {
+  margin: 0 0 14rpx;
+  min-height: 62rpx;
+  padding: 6rpx 8rpx 6rpx 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  border: 1rpx solid rgba(236, 232, 225, 0.12);
+  background: rgba(23, 35, 49, 0.56);
+}
+
+.sortLabel {
+  flex-shrink: 0;
+  color: $color-text-tertiary;
+  font-size: 22rpx;
+  font-weight: $font-weight-bold;
+}
+
+.sortButton {
+  flex: 1;
+  min-width: 0;
+  min-height: 52rpx;
+  padding: 0 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  color: $color-text-primary;
+  font-size: 22rpx;
+  font-weight: $font-weight-bold;
+  border: 1rpx solid rgba(255, 70, 85, 0.38);
+  background: rgba(255, 70, 85, 0.12);
+}
+
+.sortIndicator {
+  margin-left: auto;
+  text-align: right;
+  color: $color-primary;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .filterCheck,

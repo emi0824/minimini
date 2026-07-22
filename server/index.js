@@ -19,8 +19,10 @@ const SUBSCRIBE_TEMPLATE_IDS = {
   squadStatusChanged: 'm_8t4Gz308eRqgkBF0u1voEpiFkFbgsavi2skoL_FDg'
 };
 const SUBSCRIBE_TEMPLATE_ID_SET = new Set(Object.values(SUBSCRIBE_TEMPLATE_IDS));
-const SQUAD_TAGS = ['接受分差', '不接受分差', '排位车', '匹配车', '晨练车', '破冰专属'];
+const SQUAD_TAGS = ['接受分差', '不接受分差', '排位车', '匹配车', '晨练车', '必须准时', '不满散车'];
 const SQUAD_TAG_SET = new Set(SQUAD_TAGS);
+const SQUAD_RETENTION_MS = 12 * 60 * 60 * 1000;
+const DEPART_REMINDER_BEFORE_MS = 15 * 60 * 1000;
 
 const loadEnvFile = () => {
   try {
@@ -105,7 +107,7 @@ const initialData = {
       status: 'recruiting',
       passengers: [
         { id: 1, openid: 'mock_user_002', nickname: '老张', role: '队长', isLeader: true },
-        { id: 2, openid: 'mock_user_003', nickname: '阿强', role: '补位', note: '21:40 到' }
+        { id: 2, openid: 'mock_user_003', nickname: '阿强', role: '', note: '21:40 到' }
       ]
     },
     {
@@ -128,6 +130,15 @@ const initialData = {
 };
 
 const rateLimitBuckets = new Map();
+
+const squadDepartAt = (squad) => {
+  const date = String(squad?.departDate || '');
+  const time = String(squad?.departTime || '').slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return Number.POSITIVE_INFINITY;
+  return new Date(`${date}T${time}:00+08:00`).getTime();
+};
+
+const isSquadDeparted = (squad, now = Date.now()) => squadDepartAt(squad) <= now;
 
 const isTrustedProxy = (remoteAddress) => (
   remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1'
@@ -173,9 +184,55 @@ const readData = () => {
   ensureData();
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   data.users = Array.isArray(data.users) ? data.users : [];
-  data.users.forEach((user) => { delete user.sessionKey; });
+  let changed = false;
+  data.users.forEach((user) => {
+    delete user.sessionKey;
+    if (user.subscribedTemplateIds) {
+      delete user.subscribedTemplateIds;
+      changed = true;
+    }
+    if (!Array.isArray(user.subscriptionGrants)) {
+      user.subscriptionGrants = [];
+      changed = true;
+    }
+    if (typeof user.gameId !== 'string') {
+      user.gameId = '';
+      changed = true;
+    }
+  });
   data.squads = Array.isArray(data.squads) ? data.squads : [];
+  data.squads.forEach((squad) => {
+    if (!squad.createdAt) {
+      squad.createdAt = Number(squad.id) || Date.now();
+      changed = true;
+    }
+    if (typeof squad.creatorGameId !== 'string') {
+      const creator = data.users.find((user) => user.openid === squad.creatorOpenid);
+      squad.creatorGameId = creator?.gameId || '';
+      changed = true;
+    }
+    squad.passengers = Array.isArray(squad.passengers) ? squad.passengers : [];
+    squad.passengers.forEach((passenger) => {
+      if (typeof passenger.gameId !== 'string') {
+        const user = data.users.find((item) => item.openid === passenger.openid);
+        passenger.gameId = user?.gameId || '';
+        changed = true;
+      }
+    });
+  });
+  const activeSquads = data.squads.filter((squad) => squadDepartAt(squad) + SQUAD_RETENTION_MS > Date.now());
+  if (activeSquads.length !== data.squads.length) {
+    const activeIds = new Set(activeSquads.map((squad) => squad.id));
+    data.users.forEach((user) => {
+      user.joinedSquadIds = (user.joinedSquadIds || []).filter((id) => activeIds.has(id));
+      user.createdSquadIds = (user.createdSquadIds || []).filter((id) => activeIds.has(id));
+      user.subscriptionGrants = (user.subscriptionGrants || []).filter((grant) => activeIds.has(grant.squadId));
+    });
+    data.squads = activeSquads;
+    changed = true;
+  }
   data.settings = data.settings || {};
+  if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   return data;
 };
 
@@ -294,6 +351,7 @@ const text = (value, field, maxLength, { required = true } = {}) => {
 };
 
 const nickname = (value) => text(value || '未命名成员', '昵称', 20);
+const gameId = (value, { required = true } = {}) => text(value || '', '游戏ID', 40, { required });
 const getBeijingDate = () => new Date(Date.now() + BEIJING_OFFSET).toISOString().slice(0, 10);
 const departDate = (value) => {
   const next = text(value || getBeijingDate(), '发车日期', 10);
@@ -316,6 +374,11 @@ const tags = (value) => {
   return Array.from(new Set(value.map((item) => text(String(item), '标签', 12, { required: false })).filter((item) => SQUAD_TAG_SET.has(item)))).slice(0, 6);
 };
 
+const subscriptionTemplateIds = (value, allowedTemplateIds = SUBSCRIBE_TEMPLATE_ID_SET) => {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter((templateId) => typeof templateId === 'string' && allowedTemplateIds.has(templateId)))).slice(0, 2);
+};
+
 const normalizeSquad = (squad) => {
   const passengers = Array.isArray(squad.passengers) ? squad.passengers : [];
   const squadTags = Array.isArray(squad.tags) ? squad.tags : [];
@@ -326,15 +389,33 @@ const normalizeSquad = (squad) => {
     tags: squadTags,
     departDate: squad.departDate || getBeijingDate(),
     capacity: squadCapacity,
-    status: passengers.length >= squadCapacity ? 'ready' : 'recruiting'
+    createdAt: squad.createdAt || Number(squad.id) || Date.now(),
+    status: isSquadDeparted(squad) ? 'departed' : passengers.length >= squadCapacity ? 'ready' : 'recruiting'
   };
 };
+
+const sortSquadsSmart = (items, now = Date.now()) => [...items].sort((left, right) => {
+  const leftDeparted = isSquadDeparted(left, now);
+  const rightDeparted = isSquadDeparted(right, now);
+  if (leftDeparted !== rightDeparted) return leftDeparted ? 1 : -1;
+  if (leftDeparted && rightDeparted) return squadDepartAt(left) - squadDepartAt(right);
+  const leftReached = left.passengers.length >= left.capacity;
+  const rightReached = right.passengers.length >= right.capacity;
+  if (leftReached !== rightReached) return leftReached ? 1 : -1;
+  const dateDifference = String(left.departDate).localeCompare(String(right.departDate));
+  if (dateDifference !== 0) return dateDifference;
+  const completionDifference = (right.passengers.length / right.capacity) - (left.passengers.length / left.capacity);
+  if (completionDifference !== 0) return completionDifference;
+  const timeDifference = String(left.departTime).localeCompare(String(right.departTime));
+  if (timeDifference !== 0) return timeDifference;
+  return Number(left.createdAt || left.id) - Number(right.createdAt || right.id);
+});
 
 const publicDepartTime = (value) => String(value || '--:--').slice(0, 5);
 
 const publicSquad = (squad, viewerOpenid = '') => {
   const normalized = normalizeSquad(squad);
-  const { creatorOpenid, ...rest } = normalized;
+  const { creatorOpenid, reminderSentAt, ...rest } = normalized;
   return {
     ...rest,
     departTime: publicDepartTime(rest.departTime),
@@ -348,7 +429,7 @@ const publicSquad = (squad, viewerOpenid = '') => {
 };
 
 const publicUser = (user) => {
-  const { sessionKey, ...rest } = user;
+  const { sessionKey, subscriptionGrants, subscribedTemplateIds, ...rest } = user;
   return {
     ...rest,
     role: isAdmin(user) ? 'admin' : (user.role || 'member'),
@@ -422,10 +503,12 @@ const parseBody = (req) => new Promise((resolve, reject) => {
 const getOrCreateUser = (data, userOpenid, userNickname = '未命名成员') => {
   let user = data.users.find((item) => item.openid === userOpenid);
   if (!user) {
-    user = { openid: userOpenid, nickname: userNickname, joinedSquadIds: [], createdSquadIds: [], disabled: false };
+    user = { openid: userOpenid, nickname: userNickname, gameId: '', joinedSquadIds: [], createdSquadIds: [], subscriptionGrants: [], disabled: false };
     data.users.push(user);
   }
   if (user.disabled == null) user.disabled = false;
+  if (typeof user.gameId !== 'string') user.gameId = '';
+  if (!Array.isArray(user.subscriptionGrants)) user.subscriptionGrants = [];
   return user;
 };
 
@@ -437,7 +520,7 @@ const clearGroupAccessData = (data) => {
   delete data.settings.allowedGroupBoundBy;
   data.squads = [];
   data.users = data.users.filter((user) => isAdmin(user)).map((user) => {
-    const { groupOpenGid, groupVerified, groupVerifiedAt, subscribedTemplateIds, ...rest } = user;
+    const { groupOpenGid, groupVerified, groupVerifiedAt, subscribedTemplateIds, subscriptionGrants, ...rest } = user;
     return {
       ...rest,
       joinedSquadIds: [],
@@ -487,13 +570,21 @@ const requireRootAdmin = (req, data) => {
   return user;
 };
 
-const syncUserNicknameInSquads = (data, userOpenid, nextNickname) => {
+const syncUserProfileInSquads = (data, userOpenid, nextNickname, nextGameId) => {
   data.squads.forEach((squad) => {
-    if (squad.creatorOpenid === userOpenid) squad.creatorName = nextNickname;
+    if (squad.creatorOpenid === userOpenid) {
+      squad.creatorName = nextNickname;
+      squad.creatorGameId = nextGameId;
+    }
     squad.passengers = squad.passengers.map((passenger) => (
-      passenger.openid === userOpenid ? { ...passenger, nickname: nextNickname } : passenger
+      passenger.openid === userOpenid ? { ...passenger, nickname: nextNickname, gameId: nextGameId } : passenger
     ));
   });
+};
+
+const syncUserNicknameInSquads = (data, userOpenid, nextNickname) => {
+  const user = data.users.find((item) => item.openid === userOpenid);
+  syncUserProfileInSquads(data, userOpenid, nextNickname, user?.gameId || '');
 };
 
 const getNicknameFromSquads = (data, userOpenid) => {
@@ -505,22 +596,33 @@ const getNicknameFromSquads = (data, userOpenid) => {
   return '';
 };
 
-const hasSubscription = (data, userOpenid, templateId) => {
+const hasSubscription = (data, userOpenid, templateId, squadId) => {
   const user = data.users.find((item) => item.openid === userOpenid);
-  return Array.isArray(user?.subscribedTemplateIds) && user.subscribedTemplateIds.includes(templateId);
+  return Array.isArray(user?.subscriptionGrants)
+    && user.subscriptionGrants.some((grant) => grant.templateId === templateId && grant.squadId === squadId);
 };
 
-const removeSubscription = async (userOpenid, templateId) => withWriteLock((data) => {
+const addSubscriptionGrants = (user, templateIds, squadId) => {
+  const acceptedTemplateIds = Array.isArray(templateIds)
+    ? templateIds.filter((templateId) => SUBSCRIBE_TEMPLATE_ID_SET.has(templateId))
+    : [];
+  user.subscriptionGrants = Array.isArray(user.subscriptionGrants) ? user.subscriptionGrants : [];
+  acceptedTemplateIds.forEach((templateId) => {
+    user.subscriptionGrants.push({ templateId, squadId, grantedAt: Date.now() });
+  });
+};
+
+const removeSubscription = async (userOpenid, templateId, squadId) => withWriteLock((data) => {
   const user = data.users.find((item) => item.openid === userOpenid);
-  if (user?.subscribedTemplateIds) {
-    user.subscribedTemplateIds = user.subscribedTemplateIds.filter((item) => item !== templateId);
-  }
+  if (!Array.isArray(user?.subscriptionGrants)) return;
+  const grantIndex = user.subscriptionGrants.findIndex((grant) => grant.templateId === templateId && grant.squadId === squadId);
+  if (grantIndex >= 0) user.subscriptionGrants.splice(grantIndex, 1);
 });
 
-const sendSubscribeMessage = async ({ dataSnapshot, touser, templateId, page, data }) => {
+const sendSubscribeMessage = async ({ dataSnapshot, touser, templateId, squadId, page, data }) => {
   try {
     if (!touser || !templateId) return;
-    if (!hasSubscription(dataSnapshot, touser, templateId)) return;
+    if (!hasSubscription(dataSnapshot, touser, templateId, squadId)) return;
     if (String(touser).startsWith('guest_') || String(touser).startsWith('mock_')) return;
     const accessToken = await getWechatAccessToken();
     const url = new URL('https://api.weixin.qq.com/cgi-bin/message/subscribe/send');
@@ -528,7 +630,9 @@ const sendSubscribeMessage = async ({ dataSnapshot, touser, templateId, page, da
     const result = await wxRequest(url, { touser, template_id: templateId, page, data });
     if (result.errcode) {
       console.warn('[Subscribe] send failed', { errcode: result.errcode, errmsg: result.errmsg, templateId, touser });
-      if (result.errcode === 43101) await removeSubscription(touser, templateId);
+      if (result.errcode === 43101) await removeSubscription(touser, templateId, squadId);
+    } else {
+      await removeSubscription(touser, templateId, squadId);
     }
   } catch (error) {
     console.warn('[Subscribe] send skipped', error.message || error);
@@ -539,6 +643,7 @@ const notifyMemberChanged = (dataSnapshot, squad, operatorNickname, actionText) 
   dataSnapshot,
   touser: squad.creatorOpenid,
   templateId: SUBSCRIBE_TEMPLATE_IDS.squadMemberChanged,
+  squadId: squad.id,
   page: `/pages/detail/index?id=${squad.id}`,
   data: {
     thing78: { value: `${squad.passengers.length}/${squad.capacity}`.slice(0, 20) },
@@ -550,6 +655,7 @@ const notifyStatusChanged = (dataSnapshot, userOpenid, squad, thing) => sendSubs
   dataSnapshot,
   touser: userOpenid,
   templateId: SUBSCRIBE_TEMPLATE_IDS.squadStatusChanged,
+  squadId: squad.id,
   page: `/pages/detail/index?id=${squad.id}`,
   data: {
     phrase21: { value: thing.slice(0, 20) },
@@ -557,11 +663,45 @@ const notifyStatusChanged = (dataSnapshot, userOpenid, squad, thing) => sendSubs
   }
 });
 
-const loginResponse = async (userOpenid, userNickname, sessionKey) => withWriteLock((data) => {
+const notifyDepartReminder = (dataSnapshot, userOpenid, squad) => sendSubscribeMessage({
+  dataSnapshot,
+  touser: userOpenid,
+  templateId: SUBSCRIBE_TEMPLATE_IDS.squadStatusChanged,
+  squadId: squad.id,
+  page: `/pages/detail/index?id=${squad.id}`,
+  data: {
+    phrase21: { value: '15分钟后发车' },
+    thing1: { value: `${publicDepartTime(squad.departTime)} ${squad.title}`.slice(0, 20) }
+  }
+});
+
+const runScheduledMaintenance = async () => {
+  const jobs = await withWriteLock((data) => {
+    const now = Date.now();
+    const reminders = [];
+    data.squads.forEach((squad) => {
+      const untilDepart = squadDepartAt(squad) - now;
+      if (untilDepart <= 0 || untilDepart > DEPART_REMINDER_BEFORE_MS || squad.reminderSentAt) return;
+      squad.reminderSentAt = now;
+      reminders.push({
+        squad: normalizeSquad(squad),
+        recipients: Array.from(new Set(squad.passengers.map((passenger) => passenger.openid).filter(Boolean)))
+      });
+    });
+    return { reminders, dataSnapshot: JSON.parse(JSON.stringify(data)) };
+  });
+
+  jobs.reminders.forEach(({ squad, recipients }) => {
+    recipients.forEach((userOpenid) => notifyDepartReminder(jobs.dataSnapshot, userOpenid, squad));
+  });
+};
+
+const loginResponse = async (userOpenid, userNickname, sessionKey, userGameId = '') => withWriteLock((data) => {
   const user = getOrCreateUser(data, userOpenid, userNickname);
   if (userNickname && userNickname !== '未命名成员') {
     user.nickname = userNickname;
-    syncUserNicknameInSquads(data, user.openid, userNickname);
+    if (userGameId) user.gameId = userGameId;
+    syncUserProfileInSquads(data, user.openid, userNickname, user.gameId || '');
   } else if (!user.nickname || user.nickname === '未命名成员') {
     const recoveredNickname = getNicknameFromSquads(data, user.openid);
     if (recoveredNickname) user.nickname = recoveredNickname;
@@ -596,7 +736,7 @@ const server = http.createServer(async (req, res) => {
       const user = requireActiveUser(req, data);
       ok(res, {
         user: publicUser(user),
-        squads: data.squads.map((squad) => publicSquad(squad, user.openid))
+        squads: sortSquadsSmart(data.squads).map((squad) => publicSquad(squad, user.openid))
       });
       return;
     }
@@ -605,7 +745,7 @@ const server = http.createServer(async (req, res) => {
       checkRateLimit(req, 'guest-login', 10, 60 * 1000);
       if (!allowGuestLogin) throw Object.assign(new Error('访客登录未开放'), { status: 403 });
       const body = await parseBody(req);
-      ok(res, await loginResponse(`guest_${crypto.randomUUID()}`, nickname(body.nickname)));
+      ok(res, await loginResponse(`guest_${crypto.randomUUID()}`, nickname(body.nickname), undefined, gameId(body.gameId, { required: false })));
       return;
     }
 
@@ -613,7 +753,7 @@ const server = http.createServer(async (req, res) => {
       checkRateLimit(req, 'wechat-login', 20, 60 * 1000);
       const body = await parseBody(req);
       const session = await code2Session(text(body.code, '微信登录 code', 256));
-      ok(res, await loginResponse(session.openid, nickname(body.nickname), session.sessionKey));
+      ok(res, await loginResponse(session.openid, nickname(body.nickname), session.sessionKey, gameId(body.gameId, { required: false })));
       return;
     }
 
@@ -629,8 +769,10 @@ const server = http.createServer(async (req, res) => {
       const user = await withWriteLock((data) => {
         const current = requireActiveUser(req, data, { requireGroup: false });
         const nextNickname = nickname(body.nickname);
+        const nextGameId = body.gameId == null ? current.gameId || '' : gameId(body.gameId);
         current.nickname = nextNickname;
-        syncUserNicknameInSquads(data, current.openid, nextNickname);
+        current.gameId = nextGameId;
+        syncUserProfileInSquads(data, current.openid, nextNickname, nextGameId);
         return publicUser(current);
       });
       ok(res, user);
@@ -653,22 +795,6 @@ const server = http.createServer(async (req, res) => {
         return { user: publicUser(user), groupOpenGid };
       });
       ok(res, result);
-      return;
-    }
-
-    if (pathname === '/api/users/me/subscriptions' && req.method === 'POST') {
-      checkRateLimit(req, 'write', 30, 60 * 1000);
-      const body = await parseBody(req);
-      const user = await withWriteLock((data) => {
-        const current = requireActiveUser(req, data, { requireGroup: false });
-        const tmplIds = Array.isArray(body.tmplIds)
-          ? Array.from(new Set(body.tmplIds.filter((item) => typeof item === 'string' && SUBSCRIBE_TEMPLATE_ID_SET.has(item)))).slice(0, 2)
-          : [];
-        if (tmplIds.length === 0) throw Object.assign(new Error('没有有效的订阅模板'), { status: 400 });
-        current.subscribedTemplateIds = Array.from(new Set([...(current.subscribedTemplateIds || []), ...tmplIds])).filter((item) => SUBSCRIBE_TEMPLATE_ID_SET.has(item)).slice(0, 2);
-        return publicUser(current);
-      });
-      ok(res, user);
       return;
     }
 
@@ -759,7 +885,23 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/squads' && req.method === 'GET') {
       const data = readData();
       const user = requireActiveUser(req, data);
-      ok(res, data.squads.map((squad) => publicSquad(squad, user.openid)));
+      ok(res, sortSquadsSmart(data.squads).map((squad) => publicSquad(squad, user.openid)));
+      return;
+    }
+
+    if (pathname === '/api/squads/nearby' && req.method === 'GET') {
+      const data = readData();
+      const user = requireActiveUser(req, data);
+      const queryDate = departDate(url.searchParams.get('departDate'));
+      const queryTime = departTime(url.searchParams.get('departTime'));
+      const excludeId = Number(url.searchParams.get('excludeId') || 0);
+      const targetAt = squadDepartAt({ departDate: queryDate, departTime: queryTime });
+      const nearby = data.squads.filter((squad) => (
+        squad.id !== excludeId
+        && squad.departDate === queryDate
+        && Math.abs(squadDepartAt(squad) - targetAt) <= 30 * 60 * 1000
+      ));
+      ok(res, nearby.map((squad) => publicSquad(squad, user.openid)));
       return;
     }
 
@@ -772,24 +914,37 @@ const server = http.createServer(async (req, res) => {
       const squadCapacity = capacity(body.capacity || 5);
       const squadNote = text(body.note || '无备注', '备注', 120, { required: false }) || '无备注';
       const squadTags = tags(body.tags);
+      const requestedSubscriptionTemplateIds = subscriptionTemplateIds(body.subscriptionTemplateIds);
+      if (squadDepartAt({ departDate: squadDepartDate, departTime: squadDepartTime }) <= Date.now()) {
+        throw Object.assign(new Error('发车时间必须晚于当前时间'), { status: 400 });
+      }
       const { squad, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
+        if (!user.nickname || user.nickname === '未命名成员' || !user.gameId) {
+          throw Object.assign(new Error('请先到我的页面完善昵称和游戏ID'), { status: 400 });
+        }
         const id = Math.max(0, ...data.squads.map((item) => item.id)) + 1;
+        const createdAt = Date.now();
         const nextSquad = normalizeSquad({
           id,
           title: squadTitle,
           code: '自定义车队',
           creatorOpenid: user.openid,
           creatorName: user.nickname,
+          creatorGameId: user.gameId,
           departDate: squadDepartDate,
           departTime: squadDepartTime,
           capacity: squadCapacity,
           note: squadNote,
           tags: squadTags,
           status: 'recruiting',
-          passengers: [{ id: Date.now(), openid: user.openid, nickname: user.nickname, role: '队长', isLeader: true }]
+          createdAt,
+          passengers: [{ id: createdAt, openid: user.openid, nickname: user.nickname, gameId: user.gameId, role: '队长', isLeader: true }]
         });
         data.squads.unshift(nextSquad);
+        user.createdSquadIds = Array.from(new Set([...(user.createdSquadIds || []), id]));
+        user.joinedSquadIds = Array.from(new Set([...(user.joinedSquadIds || []), id]));
+        addSubscriptionGrants(user, requestedSubscriptionTemplateIds, id);
         return { squad: nextSquad, viewerOpenid: user.openid };
       });
       ok(res, publicSquad(squad, viewerOpenid));
@@ -815,11 +970,15 @@ const server = http.createServer(async (req, res) => {
       const squadCapacity = capacity(body.capacity || 5);
       const squadNote = text(body.note || '无备注', '备注', 120, { required: false }) || '无备注';
       const squadTags = tags(body.tags);
+      if (squadDepartAt({ departDate: squadDepartDate, departTime: squadDepartTime }) <= Date.now()) {
+        throw Object.assign(new Error('发车时间必须晚于当前时间'), { status: 400 });
+      }
       const { squad, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const nextSquad = findSquad(data, Number(squadMatch[1]));
         if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
         if (nextSquad.creatorOpenid !== user.openid) throw Object.assign(new Error('只有队长可以修改车队信息'), { status: 403 });
+        if (isSquadDeparted(nextSquad)) throw Object.assign(new Error('已发车车队不支持修改'), { status: 400 });
         if (nextSquad.passengers.some((passenger) => passenger.openid !== user.openid)) {
           throw Object.assign(new Error('车队已有成员，不支持修改信息'), { status: 400 });
         }
@@ -845,9 +1004,15 @@ const server = http.createServer(async (req, res) => {
         const squad = findSquad(data, squadId);
         if (!squad) throw Object.assign(new Error('车队不存在'), { status: 404 });
         if (squad.creatorOpenid !== user.openid) throw Object.assign(new Error('只有发起人可以解散车队'), { status: 403 });
+        if (isSquadDeparted(squad)) throw Object.assign(new Error('已发车车队不支持解散'), { status: 400 });
         const snapshot = normalizeSquad({ ...squad, passengers: [...squad.passengers] });
         const dataSnapshot = JSON.parse(JSON.stringify(data));
         data.squads = data.squads.filter((item) => item.id !== squadId);
+        data.users.forEach((item) => {
+          item.joinedSquadIds = (item.joinedSquadIds || []).filter((id) => id !== squadId);
+          item.createdSquadIds = (item.createdSquadIds || []).filter((id) => id !== squadId);
+          item.subscriptionGrants = (item.subscriptionGrants || []).filter((grant) => grant.squadId !== squadId);
+        });
         return { dismissedSquad: snapshot, dataSnapshot, userOpenid: user.openid };
       });
       dismissedSquad.passengers.filter((item) => item.openid !== userOpenid).forEach((item) => {
@@ -861,16 +1026,27 @@ const server = http.createServer(async (req, res) => {
     if (joinMatch && req.method === 'POST') {
       checkRateLimit(req, 'write', 30, 60 * 1000);
       const body = await parseBody(req);
-      const userRole = text(body.role || '补位', '角色', 16, { required: false }) || '补位';
+      const nextNickname = nickname(body.nickname);
+      const nextGameId = gameId(body.gameId);
+      const userRole = text(body.role || '', '角色', 16, { required: false });
       const userNote = text(body.note || '', '备注', 80, { required: false });
+      const requestedSubscriptionTemplateIds = subscriptionTemplateIds(
+        body.subscriptionTemplateIds,
+        new Set([SUBSCRIBE_TEMPLATE_IDS.squadStatusChanged])
+      );
       const { squad, dataSnapshot, operatorNickname, viewerOpenid } = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const nextSquad = findSquad(data, Number(joinMatch[1]));
         if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
         if (nextSquad.passengers.some((item) => item.openid === user.openid)) throw Object.assign(new Error('你已在车队中'), { status: 400 });
-        if (nextSquad.passengers.length >= nextSquad.capacity) throw Object.assign(new Error('车队已满员'), { status: 400 });
-        nextSquad.passengers.push({ id: Date.now(), openid: user.openid, nickname: user.nickname, role: userRole, note: userNote || undefined });
-        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: user.nickname, viewerOpenid: user.openid };
+        if (isSquadDeparted(nextSquad)) throw Object.assign(new Error('车队已发车，不支持加入'), { status: 400 });
+        user.nickname = nextNickname;
+        user.gameId = nextGameId;
+        syncUserProfileInSquads(data, user.openid, nextNickname, nextGameId);
+        nextSquad.passengers.push({ id: Date.now(), openid: user.openid, nickname: nextNickname, gameId: nextGameId, role: userRole, note: userNote || undefined });
+        user.joinedSquadIds = Array.from(new Set([...(user.joinedSquadIds || []), nextSquad.id]));
+        addSubscriptionGrants(user, requestedSubscriptionTemplateIds, nextSquad.id);
+        return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: nextNickname, viewerOpenid: user.openid };
       });
       notifyMemberChanged(dataSnapshot, squad, operatorNickname, '加入车队');
       ok(res, publicSquad(squad, viewerOpenid));
@@ -884,10 +1060,13 @@ const server = http.createServer(async (req, res) => {
         const user = requireActiveUser(req, data);
         const nextSquad = findSquad(data, Number(leaveMatch[1]));
         if (!nextSquad) throw Object.assign(new Error('车队不存在'), { status: 404 });
+        if (isSquadDeparted(nextSquad)) throw Object.assign(new Error('车队已发车，不支持退出'), { status: 400 });
         if (nextSquad.creatorOpenid === user.openid) throw Object.assign(new Error('发起人不能下车，请解散车队'), { status: 400 });
         const passenger = nextSquad.passengers.find((item) => item.openid === user.openid);
         if (!passenger) throw Object.assign(new Error('你不在该车队中'), { status: 400 });
         nextSquad.passengers = nextSquad.passengers.filter((item) => item.openid !== user.openid);
+        user.joinedSquadIds = (user.joinedSquadIds || []).filter((id) => id !== nextSquad.id);
+        user.subscriptionGrants = (user.subscriptionGrants || []).filter((grant) => grant.squadId !== nextSquad.id);
         return { squad: normalizeSquad(nextSquad), dataSnapshot: JSON.parse(JSON.stringify(data)), operatorNickname: passenger.nickname, viewerOpenid: user.openid };
       });
       notifyMemberChanged(dataSnapshot, squad, operatorNickname, '退出车队');
@@ -900,18 +1079,23 @@ const server = http.createServer(async (req, res) => {
       checkRateLimit(req, 'write', 30, 60 * 1000);
       const body = await parseBody(req);
       const nextNickname = text(body.nickname, '昵称', 20);
+      const nextGameId = gameId(body.gameId);
+      const nextRole = text(body.role || '', '角色', 16, { required: false });
       const nextNote = text(body.note || '', '备注', 80, { required: false });
       const result = await withWriteLock((data) => {
         const user = requireActiveUser(req, data);
         const squad = findSquad(data, Number(passengerMeMatch[1]));
         if (!squad) throw Object.assign(new Error('车队不存在'), { status: 404 });
+        if (isSquadDeparted(squad)) throw Object.assign(new Error('车队已发车，不支持修改上车资料'), { status: 400 });
         if (!squad.passengers.some((passenger) => passenger.openid === user.openid)) {
           throw Object.assign(new Error('你不在该车队中'), { status: 403 });
         }
 
         user.nickname = nextNickname;
-        syncUserNicknameInSquads(data, user.openid, nextNickname);
+        user.gameId = nextGameId;
+        syncUserProfileInSquads(data, user.openid, nextNickname, nextGameId);
         const passenger = squad.passengers.find((item) => item.openid === user.openid);
+        passenger.role = nextRole;
         if (nextNote) passenger.note = nextNote;
         else delete passenger.note;
 
@@ -926,7 +1110,14 @@ const server = http.createServer(async (req, res) => {
 
     fail(res, 404, '接口不存在');
   } catch (error) {
-    console.error('[Server] request failed', error);
+    console.error('[Server] request failed', {
+      at: new Date().toISOString(),
+      method: req.method,
+      path: typeof req.url === 'string' ? req.url.split('?')[0] : '',
+      status: error.status || 400,
+      message: error.message || '服务器错误',
+      stack: error.stack
+    });
     fail(res, error.status || 400, error.message || '服务器错误');
   }
 });
@@ -934,3 +1125,11 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`GangWa server listening on http://localhost:${PORT}`);
 });
+
+setInterval(() => {
+  runScheduledMaintenance().catch((error) => console.warn('[Maintenance] failed', error.message || error));
+}, 60 * 1000).unref();
+
+setTimeout(() => {
+  runScheduledMaintenance().catch((error) => console.warn('[Maintenance] initial run failed', error.message || error));
+}, 2000).unref();

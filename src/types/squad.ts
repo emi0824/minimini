@@ -4,6 +4,7 @@ export interface Passenger {
   id: number;
   openid?: string;
   nickname: string;
+  gameId?: string;
   role: string;
   note?: string;
   isLeader?: boolean;
@@ -16,12 +17,14 @@ export interface Squad {
   code: string;
   creatorOpenid?: string;
   creatorName: string;
+  creatorGameId?: string;
   departDate?: string;
   departTime: string;
   capacity: number;
   note: string;
   tags: string[];
   status: SquadStatus;
+  createdAt?: number;
   passengers: Passenger[];
   isJoined?: boolean;
   isCreator?: boolean;
@@ -30,9 +33,9 @@ export interface Squad {
 export interface UserProfile {
   openid: string;
   nickname: string;
+  gameId?: string;
   joinedSquadIds: number[];
   createdSquadIds: number[];
-  subscribedTemplateIds?: string[];
   role?: 'admin' | 'member';
   isRootAdmin?: boolean;
   disabled?: boolean;

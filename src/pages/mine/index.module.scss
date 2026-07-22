@@ -4,7 +4,7 @@
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
-  padding: 32rpx $page-padding 56rpx;
+  padding: 24rpx $page-padding 44rpx;
   background-color: $color-bg-page;
   background:
     radial-gradient(circle at 100% 0%, rgba(255, 70, 85, 0.16), transparent 32%),
@@ -30,7 +30,7 @@
 }
 
 .profileCard {
-  padding: 36rpx 32rpx;
+  padding: 28rpx 24rpx;
 }
 
 .kicker,
@@ -50,14 +50,14 @@
 }
 
 .nickname {
-  margin-top: 18rpx;
+  margin-top: 12rpx;
   color: $color-text-primary;
-  font-size: 48rpx;
+  font-size: 42rpx;
   font-weight: 800;
 }
 
 .identity {
-  margin-top: 10rpx;
+  margin-top: 6rpx;
   color: $color-text-tertiary;
   font-size: 24rpx;
 }
@@ -65,7 +65,7 @@
 .nicknameInput {
   width: 100%;
   height: 76rpx;
-  margin-top: 24rpx;
+  margin-top: 18rpx;
   padding: 0 20rpx;
   color: $color-text-primary;
   font-size: 26rpx;
@@ -73,11 +73,39 @@
   background: #172331;
 }
 
+.profileField {
+  min-width: 0;
+}
+
+.profileLabel {
+  display: block;
+  margin-top: 18rpx;
+  color: $color-text-secondary;
+  font-size: 22rpx;
+  font-weight: $font-weight-semibold;
+}
+
+.requiredMark {
+  margin-left: 6rpx;
+  color: $color-primary;
+  font-weight: $font-weight-bold;
+}
+
+.profileField .nicknameInput {
+  margin-top: 8rpx;
+}
+
+.profileInputGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+}
+
 .editButton {
   @include button-reset;
   min-width: 240rpx;
-  height: 64rpx;
-  margin-top: 28rpx;
+  height: 60rpx;
+  margin-top: 20rpx;
   padding: 0 28rpx;
   color: $color-text-primary;
   font-size: 24rpx;
@@ -96,8 +124,8 @@
 
 .section,
 .accessBlockedCard {
-  margin-top: 28rpx;
-  padding: 28rpx 24rpx 8rpx;
+  margin-top: 20rpx;
+  padding: 22rpx 20rpx 6rpx;
 }
 
 .accessBlockedCard {
@@ -130,7 +158,7 @@
 }
 
 .sectionTitle {
-  margin-bottom: 14rpx;
+  margin-bottom: 10rpx;
   color: $color-primary;
   font-size: 24rpx;
   font-weight: $font-weight-bold;
@@ -138,17 +166,23 @@
 }
 
 .row {
-  min-height: 108rpx;
+  min-height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-top: 1rpx solid rgba(236, 232, 225, 0.08);
+
+  > view:first-child {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .rowTitle {
   color: $color-text-primary;
   font-size: 28rpx;
   font-weight: $font-weight-semibold;
+  @include text-ellipsis;
 }
 
 .rowMeta {

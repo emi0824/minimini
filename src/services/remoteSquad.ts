@@ -1,10 +1,11 @@
 import type { CreateSquadInput, JoinSquadInput, UpdatePassengerInfoInput } from '@/services/squad';
 import { Passenger, Squad, SquadStatus, UserProfile } from '@/types/squad';
 import { request } from '@/services/request';
+import { getSquadDepartAt, getSquadStatus } from '@/utils/squad';
 
-const normalizeStatus = (status: string | undefined, passengers: Passenger[], capacity: number): SquadStatus => {
-  if (status === 'departed' || status === 'cancelled') return status;
-  return passengers.length >= capacity ? 'ready' : 'recruiting';
+const normalizeStatus = (squad: Pick<Squad, 'departDate' | 'departTime'>, status: string | undefined, passengers: Passenger[], capacity: number): SquadStatus => {
+  if (status === 'cancelled') return status;
+  return getSquadStatus({ ...squad, passengers, capacity });
 };
 
 const normalizeSquad = (squad: Squad): Squad => {
@@ -23,7 +24,7 @@ const normalizeSquad = (squad: Squad): Squad => {
     departDate: squad.departDate,
     departTime: (squad.departTime || '--:--').slice(0, 5),
     note: squad.note || '无备注',
-    status: normalizeStatus(squad.status, passengers, capacity)
+    status: normalizeStatus(squad, squad.status, passengers, capacity)
   };
 };
 
@@ -43,6 +44,10 @@ export const updateRemoteNickname = (nickname: string): Promise<UserProfile> => 
   request<UserProfile>('/api/users/me', 'PUT', { nickname })
 );
 
+export const updateRemoteProfile = (nickname: string, gameId: string): Promise<UserProfile> => (
+  request<UserProfile>('/api/users/me', 'PUT', { nickname, gameId })
+);
+
 export const getRemoteSquads = async (): Promise<Squad[]> => {
   const squads = await request<Squad[]>('/api/squads');
   return squads.map(normalizeSquad);
@@ -57,6 +62,16 @@ export const getRemoteHome = async (): Promise<RemoteHomeData> => {
 };
 
 export const getRemoteSquadById = async (id: number): Promise<Squad> => normalizeSquad(await request<Squad>(`/api/squads/${id}`));
+
+export const getRemoteNearbySquads = async (departDate: string, departTime: string, excludeId = 0): Promise<Squad[]> => {
+  const targetAt = getSquadDepartAt({ departDate, departTime });
+  const squads = await getRemoteSquads();
+  return squads.filter((squad) => (
+    squad.id !== excludeId
+    && squad.departDate === departDate
+    && Math.abs(getSquadDepartAt(squad) - targetAt) <= 30 * 60 * 1000
+  ));
+};
 
 export const createRemoteSquad = async (input: CreateSquadInput): Promise<Squad> => (
   normalizeSquad(await request<Squad>('/api/squads', 'POST', input))

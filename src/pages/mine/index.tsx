@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useLoad, useShareAppMessage } from '@tarojs/taro';
+import shareCommonImage from '@/assets/share-common.jpg';
 import { useFocusRefresh } from '@/hooks/useFocusRefresh';
 import { ensureAuthenticatedUser, getCurrentUser, hasAuthSession } from '@/services/auth';
-import { getSquadsApi, resetSquadsApi, updateNicknameApi } from '@/services/squadApi';
-import { requestAllSquadSubscribes, SUBSCRIBE_TEMPLATE_IDS } from '@/services/subscription';
+import { getSquadsApi, updateProfileApi } from '@/services/squadApi';
 import {
   AccessState,
   GroupBindingState,
@@ -22,6 +22,7 @@ import {
   verifyWechatGroupAccess
 } from '@/services/accessControl';
 import { Squad, UserProfile } from '@/types/squad';
+import { formatMonthDay } from '@/utils/date';
 import styles from './index.module.scss';
 
 interface MinePageProps {
@@ -33,6 +34,7 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
   const { version, refresh } = useFocusRefresh();
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => getCurrentUser());
   const [nickname, setNickname] = useState(currentUser.nickname === '未命名成员' ? '' : currentUser.nickname);
+  const [gameId, setGameId] = useState(currentUser.gameId || '');
   const [squads, setSquads] = useState<Squad[]>([]);
   const [isAuthorized, setIsAuthorized] = useState(() => hasAuthSession());
   const [accessState, setAccessState] = useState<AccessState | undefined>(() => (hasAuthSession() ? getCachedAccessState() : undefined));
@@ -102,12 +104,17 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
     const cachedUser = getCurrentUser();
     setCurrentUser(cachedUser);
     setNickname(cachedUser.nickname === '未命名成员' ? '' : cachedUser.nickname);
+    setGameId(cachedUser.gameId || '');
     setAccessState(getCachedAccessState());
     refreshAccessState();
   }, [active, version, refreshSignal]);
 
-  const joined = squads.filter((item) => Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid));
   const created = squads.filter((item) => Boolean(item.isCreator) || item.creatorOpenid === currentUser.openid);
+  const joined = squads.filter((item) => {
+    const isCreator = Boolean(item.isCreator) || item.creatorOpenid === currentUser.openid;
+    const isPassenger = Boolean(item.isJoined) || item.passengers.some((passenger) => passenger.openid === currentUser.openid);
+    return isPassenger && !isCreator;
+  });
   const accessBlocked = accessState?.isDisabled || accessState?.needsGroupVerify;
   const accessDescription = accessState?.isDisabled
     ? '你的使用权限已被管理员移除。如需恢复，请联系群管理员确认。'
@@ -126,17 +133,6 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
       ? '正在检查你的登录和准入状态...'
       : accessDescription;
   const accessOverlayButtonText = !isAuthorized ? '授权并继续' : '授权并验证';
-  const subscribedIds = currentUser.subscribedTemplateIds || [];
-  const subscribeTemplateIds = Object.values(SUBSCRIBE_TEMPLATE_IDS);
-  const enabledMessageCount = subscribeTemplateIds.filter((id) => subscribedIds.includes(id)).length;
-  const messageEnabled = enabledMessageCount === subscribeTemplateIds.length;
-  const messagePartiallyEnabled = enabledMessageCount > 0 && !messageEnabled;
-  const messageStatusText = messageEnabled
-    ? '消息提醒：已开启'
-    : messagePartiallyEnabled
-      ? `消息提醒：部分开启 ${enabledMessageCount}/${subscribeTemplateIds.length}`
-      : '消息提醒：未开启';
-  const messageButtonText = messageEnabled ? '重新授权消息提醒' : messagePartiallyEnabled ? '继续授权消息提醒' : '授权消息提醒';
   const authenticatedUser = accessState?.user || currentUser;
   const manageableUsers = adminUsers.filter((user) => user.openid !== authenticatedUser.openid && user.nickname !== '未命名成员');
   const canManageAdminRole = accessState?.isRootAdmin === true;
@@ -155,21 +151,27 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
     }
   };
 
-  const handleSaveNickname = async () => {
+  const handleSaveProfile = async () => {
     const finalNickname = nickname.trim();
     if (!finalNickname) {
       Taro.showToast({ title: '请输入昵称', icon: 'none' });
       return;
     }
+    const finalGameId = gameId.trim();
+    if (!finalGameId) {
+      Taro.showToast({ title: '请输入游戏ID', icon: 'none' });
+      return;
+    }
     try {
-      const nextUser = await updateNicknameApi(finalNickname);
+      const nextUser = await updateProfileApi(finalNickname, finalGameId);
       setCurrentUser(nextUser);
       setIsAuthorized(true);
       setNickname(nextUser.nickname === '未命名成员' ? '' : nextUser.nickname);
-      Taro.showToast({ title: '授权成功，昵称已保存', icon: 'success' });
+      setGameId(nextUser.gameId || '');
+      Taro.showToast({ title: '个人资料已保存', icon: 'success' });
       refresh();
     } catch (error) {
-      console.error('[Mine] update nickname failed', error);
+      console.error('[Mine] update profile failed', error);
       Taro.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' });
     }
   };
@@ -257,49 +259,59 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
     });
   };
 
-  const handleSubscribeMessages = async () => {
-    const result = await requestAllSquadSubscribes();
-    const nextUser = getCurrentUser();
-    setCurrentUser(nextUser);
-    const nextCount = subscribeTemplateIds.filter((id) => (nextUser.subscribedTemplateIds || []).includes(id)).length;
-    Taro.showToast({
-      title: nextCount === subscribeTemplateIds.length
-        ? '消息提醒已开启'
-        : nextCount > 0
-          ? `消息提醒部分开启 ${nextCount}/${subscribeTemplateIds.length}`
-          : result.accepted.length > 0 ? '消息提醒部分开启' : '未开启消息提醒',
-      icon: 'none'
-    });
-  };
-
   useShareAppMessage(() => ({
     title: '港瓦夕阳红车队集合',
     path: '/pages/index/index',
-    imageUrl: 'https://api.viper333.cn/assets/share-card.jpg'
+    imageUrl: shareCommonImage
   }));
-
-  const handleReset = () => {
-    Taro.showModal({
-      title: '重置演示数据',
-      content: '会恢复到初始演示车队，仅用于当前原型调试。',
-      success: async (res) => {
-        if (!res.confirm) return;
-        await resetSquadsApi();
-        Taro.showToast({ title: '已重置', icon: 'success' });
-        refresh();
-      }
-    });
-  };
 
   return (
     <View className={styles.page}>
       <View className={canViewMine ? styles.mineContent : styles.mineContentHidden}>
         <View className={styles.profileCard}>
-        <Text className={styles.kicker}>我的活动档案</Text>
+        <Text className={styles.kicker}>我的交通卡</Text>
         <Text className={styles.nickname}>{currentUser.nickname}</Text>
-        <Text className={styles.identity}>{isAuthorized ? '微信身份：已授权' : '微信身份：未授权 · 保存昵称时将绑定微信身份'}</Text>
-        <Input className={styles.nicknameInput} placeholder='输入游戏昵称' value={nickname} onInput={(event) => setNickname(String(event.detail.value))} />
-        <Button className={styles.editButton} onClick={handleSaveNickname}>{isAuthorized ? '保存昵称' : '授权并保存昵称'}</Button>
+        {currentUser.gameId && <Text className={styles.identity}>游戏ID：{currentUser.gameId}</Text>}
+        <Text className={styles.identity}>{isAuthorized ? '微信身份：已授权' : '微信身份：未授权 · 保存资料时将绑定微信身份'}</Text>
+        <View className={styles.profileInputGrid}>
+          <View className={styles.profileField}>
+            <Text className={styles.profileLabel}>称呼<Text className={styles.requiredMark}>*</Text></Text>
+            <Input className={styles.nicknameInput} maxlength={20} placeholder='填写称呼' value={nickname} onInput={(event) => setNickname(String(event.detail.value))} />
+          </View>
+          <View className={styles.profileField}>
+            <Text className={styles.profileLabel}>游戏ID<Text className={styles.requiredMark}>*</Text></Text>
+            <Input className={styles.nicknameInput} maxlength={40} placeholder='填写游戏ID' value={gameId} onInput={(event) => setGameId(String(event.detail.value))} />
+          </View>
+        </View>
+        <Button className={styles.editButton} onClick={handleSaveProfile}>{isAuthorized ? '保存资料' : '授权并保存资料'}</Button>
+      </View>
+
+      <View className={styles.section}>
+        <Text className={styles.sectionTitle}>我加入的车队</Text>
+        {joined.map((item) => (
+          <View className={styles.row} key={item.id} onClick={() => openDetail(item.id)}>
+            <View>
+              <Text className={styles.rowTitle}>{formatMonthDay(item.departDate)} {item.departTime} {item.title}</Text>
+              <Text className={styles.rowMeta}>{item.passengers.length}/{item.capacity} · {item.creatorName} 发起</Text>
+            </View>
+            <Text className={styles.rowAction}>查看</Text>
+          </View>
+        ))}
+        {joined.length === 0 && <Text className={styles.rowMeta}>暂未加入任何车队</Text>}
+      </View>
+
+      <View className={styles.section}>
+        <Text className={styles.sectionTitle}>我创建的车队</Text>
+        {created.map((item) => (
+          <View className={styles.row} key={item.id} onClick={() => openDetail(item.id)}>
+            <View>
+              <Text className={styles.rowTitle}>{formatMonthDay(item.departDate)} {item.departTime} {item.title}</Text>
+              <Text className={styles.rowMeta}>仅发起人可解散车队</Text>
+            </View>
+            <Text className={styles.rowAction}>管理</Text>
+          </View>
+        ))}
+        {created.length === 0 && <Text className={styles.rowMeta}>暂未创建任何车队</Text>}
       </View>
 
       <View className={accessBlocked ? styles.accessBlockedCard : styles.section}>
@@ -367,44 +379,6 @@ const MinePage: React.FC<MinePageProps> = ({ active = true, refreshSignal = 0 })
         </View>
       )}
 
-      <View className={styles.section}>
-        <Text className={styles.sectionTitle}>我加入的车队</Text>
-        {joined.map((item) => (
-          <View className={styles.row} key={item.id} onClick={() => openDetail(item.id)}>
-            <View>
-              <Text className={styles.rowTitle}>{item.departTime} {item.title}</Text>
-              <Text className={styles.rowMeta}>{item.passengers.length}/{item.capacity} · {item.creatorName} 发起</Text>
-            </View>
-            <Text className={styles.rowAction}>查看</Text>
-          </View>
-        ))}
-        {joined.length === 0 && <Text className={styles.rowMeta}>暂未加入任何车队</Text>}
-      </View>
-
-      <View className={styles.section}>
-        <Text className={styles.sectionTitle}>我创建的车队</Text>
-        {created.map((item) => (
-          <View className={styles.row} key={item.id} onClick={() => openDetail(item.id)}>
-            <View>
-              <Text className={styles.rowTitle}>{item.departTime} {item.title}</Text>
-              <Text className={styles.rowMeta}>仅发起人可解散车队</Text>
-            </View>
-            <Text className={styles.rowAction}>管理</Text>
-          </View>
-        ))}
-        {created.length === 0 && <Text className={styles.rowMeta}>暂未创建任何车队</Text>}
-      </View>
-
-      <View className={styles.section}>
-        <View className={styles.messageHeader}>
-          <Text className={styles.sectionTitle}>消息提醒</Text>
-          <Text className={messageEnabled ? styles.messageStatusOn : messagePartiallyEnabled ? styles.messageStatusPartial : styles.messageStatusOff}>{messageStatusText}</Text>
-        </View>
-        <Text className={styles.rowMeta}>开启后你将收到：你创建的车队有成员加入/退出、你加入的车队被解散、车队状态发生变化。</Text>
-        <Button className={styles.editButton} onClick={handleSubscribeMessages}>{messageButtonText}</Button>
-      </View>
-
-        <Button className={styles.editButton} onClick={handleReset}>重置演示数据</Button>
       </View>
 
       {!canViewMine && (

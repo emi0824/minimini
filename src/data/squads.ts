@@ -22,7 +22,7 @@ export const squads: Squad[] = [
     passengers: [
       { id: 1, openid: 'mock_user_002', nickname: '老张', role: '队长', isLeader: true },
       { id: 2, openid: 'mock_user_001', nickname: '老王', role: '打野' },
-      { id: 3, openid: 'mock_user_003', nickname: '阿强', role: '补位', note: '21:40 到' }
+      { id: 3, openid: 'mock_user_003', nickname: '阿强', role: '', note: '21:40 到' }
     ]
   },
   {
@@ -53,11 +53,11 @@ export const squads: Squad[] = [
     departTime: '23:20',
     capacity: 5,
     note: '人齐就开，来两个能指挥的。',
-    tags: ['接受分差', '破冰专属'],
+    tags: ['接受分差', '必须准时'],
     status: 'recruiting',
     passengers: [
       { id: 9, openid: 'mock_user_001', nickname: '老王', role: '队长', isLeader: true },
-      { id: 10, openid: 'mock_user_009', nickname: '小白', role: '补位' }
+      { id: 10, openid: 'mock_user_009', nickname: '小白', role: '' }
     ]
   }
 ];
